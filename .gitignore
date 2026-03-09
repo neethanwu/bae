@@ -1,0 +1,10 @@
+node_modules/
+bun.lock
+.env*
+
+# Claude
+.claude/
+CLAUDE.md
+
+# Docs (local reference only)
+docs/

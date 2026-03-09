@@ -1,0 +1,25 @@
+{
+  "name": "bae",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "check": "tsc --noEmit",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@chat-adapter/state-memory": "^4.17.0",
+    "@chat-adapter/telegram": "^4.17.0",
+    "chat": "^4.17.0",
+    "hono": "^4.12.5"
+  }
+}
