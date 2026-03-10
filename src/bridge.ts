@@ -1,9 +1,11 @@
+import { mkdirSync } from "node:fs";
 import type { MessageData, Thread } from "chat";
 import { execute } from "./executor/claude.ts";
 
 const MAX_RESPONSE_LENGTH = 4000;
 
-const CWD = process.env.BAE_CWD || `${process.env.HOME}/bae-workspace`;
+const CWD = process.env.BAE_CWD || `${process.env.HOME}/baesment`;
+mkdirSync(CWD, { recursive: true });
 
 if (!process.env.BAE_ALLOWED_USERS) {
 	console.error(
