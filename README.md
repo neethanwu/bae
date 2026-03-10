@@ -50,32 +50,8 @@ Your Phone                    Your Machine (always on)
 | Runtime | Bun | Native TS, built-in SQLite, fast subprocess spawning |
 | HTTP | Hono | Minimal webhook receiver (~14kb) |
 | IM Abstraction | Vercel Chat SDK | Write once → Telegram, Slack, Discord, Teams, etc. |
-| Agent Backend | CLI subprocess | Claude Code, Codex, OpenCode, Amp — subscription-friendly |
+| Agent Backend | Subprocess & SDK | Agent-agnostic; works with any CLI agent |
 | Tunnel | cloudflared | One binary, one command, free, no account needed |
-
-## Quick Start
-
-```bash
-# Prerequisites: Bun, Claude Code installed & authenticated
-
-# Clone and install
-git clone <repo-url> && cd bae
-bun install
-
-# Set env vars
-export TELEGRAM_BOT_TOKEN="your-bot-token"    # from @BotFather
-export BAE_ALLOWED_USERS="your-telegram-id"   # from @userinfobot
-
-# Run (polling mode — no tunnel needed for local dev)
-bun run dev
-```
-
-For webhook mode (production), start a tunnel and register the webhook:
-
-```bash
-npx cloudflared tunnel --url http://localhost:3456
-curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook?url=https://YOUR-TUNNEL-URL/webhook/telegram"
-```
 
 ## License
 
