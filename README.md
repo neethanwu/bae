@@ -13,7 +13,7 @@ Bae is a **tunnel** — a thin, opinionated relay that connects your messaging a
 You have a Mac Mini (or any always-on computer) at home. You have Claude Code installed with a Max subscription. You have Telegram on your phone. Bae connects them:
 
 ```
-Your Phone (Telegram)  →  Bae (bridge)  →  claude -p (on your Mac)
+Your Phone (Telegram)  →  Bae (bridge)  →  Local Agent (on your Mac)
 ```
 
 - **No API keys needed** — uses your existing Claude Code subscription auth
@@ -25,21 +25,21 @@ Your Phone (Telegram)  →  Bae (bridge)  →  claude -p (on your Mac)
 ## Architecture
 
 ```
-  Your Phone                        Your Mac Mini (always on)
- ┌──────────┐                      ┌────────────────────────────────┐
- │ Telegram  │──webhook──┐         │                                │
- │ Slack     │──webhook──┤  tunnel  │  ┌──────┐     ┌────────────┐  │
- │ Discord   │──webhook──┼────────▶│  │ Bae  │────▶│ claude -p  │  │
- │ ...       │           │         │  │      │◀────│ (or codex  │  │
- └──────────┘            │         │  └──┬───┘     │  exec, etc)│  │
-                         │         │     │         └────────────┘  │
-                         │         │     │  Your filesystem        │
-                         │         │     │  Your skills/config     │
-                         │         │     │  Your MCP servers       │
-                         │         └────────────────────────────────┘
-                         │
-                    cloudflared tunnel
-                    (one command, zero config)
+Your Phone                    Your Mac Mini (always on)
+┌────────────┐               ┌──────────────────────────────────────┐
+│  Telegram  │─── webhook ──┐│                                      │
+│  Slack     │─── webhook ──┤│  ┌───────┐      ┌─────────────────┐  │
+│  Discord   │─── webhook ──┼┼─▶│  Bae  │─────▶│  Local Agents   │  │
+│  ...       │              ││  │       │◀─────│  Claude Code     │  │
+└────────────┘              ││  └───────┘      │  Codex           │  │
+                            ││                 │  OpenCode        │  │
+                            ││                 │  Amp, etc.       │  │
+                            ││                 └─────────────────┘  │
+                            ││                                      │
+                            ││  Your filesystem, skills, MCP servers│
+                            │└──────────────────────────────────────┘
+                            │
+                       cloudflared tunnel
 ```
 
 ## Tech Stack
@@ -50,7 +50,7 @@ Your Phone (Telegram)  →  Bae (bridge)  →  claude -p (on your Mac)
 | Runtime | Bun | Native TS, built-in SQLite, fast subprocess spawning |
 | HTTP | Hono | Minimal webhook receiver (~14kb) |
 | IM Abstraction | Vercel Chat SDK | Write once → Telegram, Slack, Discord, Teams, etc. |
-| Agent Backend | `claude -p` subprocess | Subscription-friendly, full agent capabilities |
+| Agent Backend | CLI subprocess | Claude Code, Codex, OpenCode, Amp — subscription-friendly |
 | Tunnel | cloudflared | One binary, one command, free, no account needed |
 
 ## Quick Start
