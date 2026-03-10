@@ -29,7 +29,8 @@ if (!process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN) {
 
 export { WEBHOOK_SECRET };
 
-bot.onNewMention(async (thread, message) => {
+// DM-only: every message in a new thread triggers handleMessage
+bot.onNewMessage(/./, async (thread, message) => {
 	await thread.subscribe();
 	await handleMessage(thread, message);
 });
