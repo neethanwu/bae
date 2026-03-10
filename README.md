@@ -10,10 +10,10 @@ Bae is a **tunnel** — a thin, opinionated relay that connects your messaging a
 
 ## Why Bae?
 
-You have a Mac Mini (or any always-on computer) at home. You have Claude Code installed with a Max subscription. You have Telegram on your phone. Bae connects them:
+You have an always-on machine at home (Mac Mini, Linux server, Windows PC). You have Claude Code installed with a Max subscription. You have Telegram on your phone. Bae connects them:
 
 ```
-Your Phone (Telegram)  →  Bae (bridge)  →  Local Agent (on your Mac)
+Your Phone (Telegram)  →  Bae (bridge)  →  Local Agent (on your machine)
 ```
 
 - **No API keys needed** — uses your existing Claude Code subscription auth
@@ -25,7 +25,7 @@ Your Phone (Telegram)  →  Bae (bridge)  →  Local Agent (on your Mac)
 ## Architecture
 
 ```
-Your Phone                    Your Mac Mini (always on)
+Your Phone                    Your Machine (always on)
 ┌────────────┐               ┌──────────────────────────────────────┐
 │  Telegram  │─── webhook ──┐│                                      │
 │  Slack     │─── webhook ──┤│  ┌───────┐      ┌─────────────────┐  │
