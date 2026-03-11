@@ -1,6 +1,6 @@
-import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { type DB, openDatabase } from "./db.ts";
 
 export interface Session {
 	id: number;
@@ -38,7 +38,8 @@ function toSession(row: SessionRow): Session {
 }
 
 export class SessionStore {
-	private db: Database;
+	private db!: DB;
+	private ready: Promise<void>;
 
 	constructor(dbPath?: string) {
 		const dir = dbPath
@@ -47,11 +48,17 @@ export class SessionStore {
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 		const path = dbPath ?? join(dir, "bae.db");
-		this.db = new Database(path);
 
-		this.db.exec("PRAGMA journal_mode = WAL");
-		this.db.exec("PRAGMA foreign_keys = ON");
-		this.db.exec("PRAGMA busy_timeout = 5000");
+		this.ready = openDatabase(path).then((db) => {
+			this.db = db;
+			this.init();
+		});
+	}
+
+	private init(): void {
+		this.db.pragma("journal_mode = WAL");
+		this.db.pragma("foreign_keys = ON");
+		this.db.pragma("busy_timeout = 5000");
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS sessions (
@@ -73,22 +80,28 @@ export class SessionStore {
 		);
 	}
 
+	/** Wait for async DB initialization. Call once at startup. */
+	async waitReady(): Promise<void> {
+		await this.ready;
+	}
+
 	getOrCreate(platform: string, threadId: string, defaultCwd: string): Session {
-		const existing = this.db
-			.query<SessionRow, [string, string]>(
-				"SELECT * FROM sessions WHERE platform = ? AND thread_id = ?",
-			)
-			.get(platform, threadId);
+		const existing = this.db.queryGet<SessionRow>(
+			"SELECT * FROM sessions WHERE platform = ? AND thread_id = ?",
+			platform,
+			threadId,
+		);
 
 		if (existing) return toSession(existing);
 
-		const result = this.db
-			.query<SessionRow, [string, string, string]>(
-				`INSERT INTO sessions (platform, thread_id, cwd)
-				 VALUES (?, ?, ?)
-				 RETURNING *`,
-			)
-			.get(platform, threadId, defaultCwd);
+		const result = this.db.queryGet<SessionRow>(
+			`INSERT INTO sessions (platform, thread_id, cwd)
+			 VALUES (?, ?, ?)
+			 RETURNING *`,
+			platform,
+			threadId,
+			defaultCwd,
+		);
 
 		if (!result) throw new Error("Failed to create session");
 		return toSession(result);
@@ -97,21 +110,23 @@ export class SessionStore {
 	setAgentSessionId(id: number, sessionId: string): void {
 		this.db.run(
 			"UPDATE sessions SET agent_session_id = ?, updated_at = datetime('now') WHERE id = ?",
-			[sessionId, id],
+			sessionId,
+			id,
 		);
 	}
 
 	setStatus(id: number, status: "idle" | "running"): void {
 		this.db.run(
 			"UPDATE sessions SET status = ?, updated_at = datetime('now') WHERE id = ?",
-			[status, id],
+			status,
+			id,
 		);
 	}
 
 	clearSession(id: number): void {
 		this.db.run(
 			"UPDATE sessions SET agent_session_id = NULL, status = 'idle', updated_at = datetime('now') WHERE id = ?",
-			[id],
+			id,
 		);
 	}
 

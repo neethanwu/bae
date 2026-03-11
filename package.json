@@ -11,6 +11,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "latest"
   },
   "peerDependencies": {
@@ -19,6 +20,7 @@
   "dependencies": {
     "@chat-adapter/state-memory": "^4.17.0",
     "@chat-adapter/telegram": "^4.17.0",
+    "better-sqlite3": "^12.6.2",
     "chat": "^4.17.0",
     "hono": "^4.12.5"
   }

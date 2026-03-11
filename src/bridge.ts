@@ -36,6 +36,7 @@ if (ALLOWED_USERS.length === 0) {
 
 // Initialize session stack
 const store = new SessionStore();
+await store.waitReady();
 const executor = new ClaudeCodeExecutor();
 export const sessionManager = new SessionManager(store, executor, CWD);
 console.log(`[bae] Workspace: ${CWD}`);
