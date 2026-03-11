@@ -7,5 +7,6 @@ console.log(`Bae starting on port ${PORT}...`);
 
 export default {
 	port: PORT,
+	hostname: "127.0.0.1",
 	fetch: app.fetch,
 };

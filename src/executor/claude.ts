@@ -1,7 +1,7 @@
 import { parseJSONLStream } from "../stream/parser.ts";
 import { transformClaudeEvent } from "../stream/transformer.ts";
 import type { AgentEvent } from "../stream/types.ts";
-import type { ExecuteResult, Executor } from "./types.ts";
+import type { ExecuteOptions, ExecuteResult, Executor } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const SIGKILL_DELAY_MS = 5_000;
@@ -12,14 +12,7 @@ const SIGKILL_DELAY_MS = 5_000;
  * Conversation continuity is maintained via `--resume <sessionId>`.
  */
 export class ClaudeCodeExecutor implements Executor {
-	readonly name = "claude-code";
-
-	execute(options: {
-		prompt: string;
-		cwd: string;
-		resumeSessionId?: string;
-		timeout?: number;
-	}): ExecuteResult {
+	execute(options: ExecuteOptions): ExecuteResult {
 		const timeoutMs = options.timeout ?? DEFAULT_TIMEOUT_MS;
 
 		const args = [
@@ -47,12 +40,24 @@ export class ClaudeCodeExecutor implements Executor {
 			env,
 		});
 
-		// Log stderr in background
-		new Response(proc.stderr).text().then((text) => {
-			if (text.trim()) {
-				console.error("[claude stderr]", text.trim().slice(0, 500));
+		// Log stderr in background (bounded to ~4KB to avoid unbounded memory usage)
+		const MAX_STDERR = 4096;
+		let stderrBuf = "";
+		const reader = proc.stderr.getReader();
+		(async () => {
+			const decoder = new TextDecoder();
+			try {
+				while (stderrBuf.length < MAX_STDERR) {
+					const { done, value } = await reader.read();
+					if (done) break;
+					stderrBuf += decoder.decode(value, { stream: true });
+				}
+				reader.cancel();
+			} catch {}
+			if (stderrBuf.trim()) {
+				console.error("[claude stderr]", stderrBuf.trim().slice(0, 500));
 			}
-		});
+		})();
 
 		let sessionResolve: (id: string) => void;
 		let sessionReject: (err: Error) => void;
@@ -63,11 +68,12 @@ export class ClaudeCodeExecutor implements Executor {
 
 		let killed = false;
 		let timedOut = false;
+		let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
 
 		const timeout = setTimeout(() => {
 			timedOut = true;
 			proc.kill("SIGTERM");
-			setTimeout(() => {
+			sigkillTimer = setTimeout(() => {
 				if (!killed) proc.kill("SIGKILL");
 			}, SIGKILL_DELAY_MS);
 		}, timeoutMs);
@@ -101,6 +107,7 @@ export class ClaudeCodeExecutor implements Executor {
 				};
 			} finally {
 				clearTimeout(timeout);
+				clearTimeout(sigkillTimer);
 				await proc.exited;
 			}
 		}
@@ -112,8 +119,12 @@ export class ClaudeCodeExecutor implements Executor {
 				killed = true;
 				clearTimeout(timeout);
 				proc.kill("SIGTERM");
-				setTimeout(() => proc.kill("SIGKILL"), SIGKILL_DELAY_MS);
+				const killTimer = setTimeout(
+					() => proc.kill("SIGKILL"),
+					SIGKILL_DELAY_MS,
+				);
 				await proc.exited;
+				clearTimeout(killTimer);
 			},
 		};
 	}

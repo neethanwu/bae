@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface Session {
 	id: number;
@@ -42,9 +42,9 @@ export class SessionStore {
 
 	constructor(dbPath?: string) {
 		const dir = dbPath
-			? dbPath.substring(0, dbPath.lastIndexOf("/"))
+			? dirname(dbPath)
 			: join(process.env.HOME ?? "~", ".bae");
-		mkdirSync(dir, { recursive: true });
+		mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 		const path = dbPath ?? join(dir, "bae.db");
 		this.db = new Database(path);
@@ -93,13 +93,6 @@ export class SessionStore {
 		this.db.run(
 			"UPDATE sessions SET agent_session_id = ?, updated_at = datetime('now') WHERE id = ?",
 			[sessionId, id],
-		);
-	}
-
-	updateCwd(id: number, cwd: string): void {
-		this.db.run(
-			"UPDATE sessions SET cwd = ?, updated_at = datetime('now') WHERE id = ?",
-			[cwd, id],
 		);
 	}
 

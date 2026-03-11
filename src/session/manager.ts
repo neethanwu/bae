@@ -21,6 +21,17 @@ export class SessionManager {
 	): Promise<AsyncIterable<AgentEvent>> {
 		const session = this.store.getOrCreate(platform, threadId, this.defaultCwd);
 
+		// Reject concurrent messages to the same thread — prevents duplicate --resume
+		if (session.status === "running") {
+			async function* busy(): AsyncIterable<AgentEvent> {
+				yield {
+					kind: "error",
+					message: "Still working on your previous message. Please wait.",
+				};
+			}
+			return busy();
+		}
+
 		const result = this.executor.execute({
 			prompt: text,
 			cwd: session.cwd,

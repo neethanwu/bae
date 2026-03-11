@@ -14,6 +14,5 @@ export interface ExecuteResult {
 }
 
 export interface Executor {
-	readonly name: string;
 	execute(options: ExecuteOptions): ExecuteResult;
 }

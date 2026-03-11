@@ -45,6 +45,7 @@ process.on("SIGINT", shutdown);
 export async function handleMessage(
 	thread: Thread,
 	message: MessageData,
+	platform = "telegram",
 ): Promise<void> {
 	const userId = message.author?.userId ?? "";
 	if (!ALLOWED_USERS.includes(userId)) {
@@ -75,7 +76,6 @@ export async function handleMessage(
 		return;
 	}
 
-	const platform = "telegram";
 	const startTime = Date.now();
 	console.log(
 		`[bae] <- ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
@@ -121,8 +121,6 @@ export async function handleMessage(
 			}
 		}
 
-		clearInterval(typingInterval);
-
 		if (!responseText) {
 			responseText = "(no response from agent)";
 		}
@@ -138,10 +136,11 @@ export async function handleMessage(
 			`[bae] -> ${responseText.slice(0, 80)}${responseText.length > 80 ? "..." : ""} (${elapsed}s${toolCount > 0 ? `, ${toolCount} tools` : ""})`,
 		);
 	} catch (err) {
-		clearInterval(typingInterval);
 		console.error("[bae] Error:", err);
 		await thread.post(
 			"Something went wrong processing your message. Check the server logs for details.",
 		);
+	} finally {
+		clearInterval(typingInterval);
 	}
 }
