@@ -1,6 +1,8 @@
 import { mkdirSync } from "node:fs";
 import type { MessageData, Thread } from "chat";
-import { execute } from "./executor/claude.ts";
+import { ClaudeCodeExecutor } from "./executor/claude.ts";
+import { SessionManager } from "./session/manager.ts";
+import { SessionStore } from "./session/store.ts";
 
 const MAX_RESPONSE_LENGTH = 4000;
 
@@ -23,50 +25,87 @@ if (ALLOWED_USERS.length === 0) {
 	process.exit(1);
 }
 
-const activeThreads = new Set<string>();
+// Initialize session stack
+const store = new SessionStore();
+const executor = new ClaudeCodeExecutor();
+const sessionManager = new SessionManager(store, executor, CWD);
+
+// Graceful shutdown
+function shutdown() {
+	console.log("[bae] Shutting down...");
+	sessionManager.close();
+	process.exit(0);
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
 
 export async function handleMessage(
 	thread: Thread,
 	message: MessageData,
 ): Promise<void> {
-	// Security: reject unauthorized users
 	const userId = message.author?.userId ?? "";
-	if (!ALLOWED_USERS.includes(userId)) {
-		return;
-	}
+	if (!ALLOWED_USERS.includes(userId)) return;
 
 	const text = message.text;
-
-	// Guard: non-text or empty messages
 	if (!text || text.trim() === "") {
 		await thread.post("Only text messages are supported.");
 		return;
 	}
 
-	// Guard: /start command
+	// Commands
 	if (text === "/start") {
 		await thread.post(
-			"Bae is ready. Send me a message and I'll pass it to Claude Code.",
+			"Bae is ready. Send me a message and I'll pass it to your agent.",
 		);
 		return;
 	}
 
-	// Concurrency guard: one request per thread at a time
-	const threadId = thread.id;
-	if (activeThreads.has(threadId)) {
-		await thread.post("Still processing your previous message, please wait.");
+	if (text === "/new") {
+		sessionManager.clearSession("telegram", thread.id);
+		await thread.post(
+			"Session cleared. Next message starts a fresh conversation.",
+		);
 		return;
 	}
-	activeThreads.add(threadId);
+
+	// Determine platform from thread metadata
+	// For now, hardcode "telegram" — multi-platform routing comes in Phase 1c
+	const platform = "telegram";
 
 	try {
-		const response =
-			(await execute(text, CWD)) || "(no response from Claude Code)";
+		const events = await sessionManager.handleMessage(
+			platform,
+			thread.id,
+			text,
+		);
+
+		let responseText = "";
+
+		for await (const event of events) {
+			if (event.kind === "text_delta") {
+				responseText += event.text;
+			}
+			if (event.kind === "result") {
+				// Prefer result text if we got no text_delta events
+				if (!responseText && event.text) {
+					responseText = event.text;
+				}
+				break;
+			}
+			if (event.kind === "error") {
+				responseText = `Error: ${event.message}`;
+				break;
+			}
+		}
+
+		if (!responseText) {
+			responseText = "(no response from agent)";
+		}
 
 		const truncated =
-			response.length > MAX_RESPONSE_LENGTH
-				? `${response.slice(0, MAX_RESPONSE_LENGTH)}\n\n... (truncated)`
-				: response;
+			responseText.length > MAX_RESPONSE_LENGTH
+				? `${responseText.slice(0, MAX_RESPONSE_LENGTH)}\n\n... (truncated)`
+				: responseText;
 
 		await thread.post(truncated);
 	} catch (err) {
@@ -74,7 +113,5 @@ export async function handleMessage(
 		await thread.post(
 			"Something went wrong processing your message. Check the server logs for details.",
 		);
-	} finally {
-		activeThreads.delete(threadId);
 	}
 }

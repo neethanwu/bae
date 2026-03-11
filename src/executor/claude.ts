@@ -1,125 +1,120 @@
 import { parseJSONLStream } from "../stream/parser.ts";
+import { transformClaudeEvent } from "../stream/transformer.ts";
+import type { AgentEvent } from "../stream/types.ts";
+import type { ExecuteResult, Executor } from "./types.ts";
 
-interface ContentBlock {
-	type: string;
-	text?: string;
-}
-
-type ClaudeStreamMessage =
-	| { type: "system"; subtype: "init"; session_id: string }
-	| { type: "assistant"; message: { content: ContentBlock[] } }
-	| { type: "result"; result: string }
-	| { type: string };
-
-function isClaudeStreamMessage(
-	raw: Record<string, unknown>,
-): raw is ClaudeStreamMessage {
-	return typeof raw.type === "string";
-}
-
-function isAssistantMessage(
-	msg: ClaudeStreamMessage,
-): msg is { type: "assistant"; message: { content: ContentBlock[] } } {
-	return (
-		msg.type === "assistant" &&
-		"message" in msg &&
-		typeof msg.message === "object" &&
-		msg.message !== null &&
-		"content" in msg.message &&
-		Array.isArray(msg.message.content)
-	);
-}
-
-function isResultMessage(
-	msg: ClaudeStreamMessage,
-): msg is { type: "result"; result: string } {
-	return (
-		msg.type === "result" && "result" in msg && typeof msg.result === "string"
-	);
-}
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const SIGKILL_DELAY_MS = 5_000;
 
 /**
- * Spawn claude -p with the given prompt and collect the response.
- * Phase 0: prompt as CLI argument, new process per message.
+ * Claude Code executor — Option B (spawn-per-message with --resume).
+ * Each call to execute() spawns a new `claude -p` process.
+ * Conversation continuity is maintained via `--resume <sessionId>`.
  */
-export async function execute(prompt: string, cwd: string): Promise<string> {
-	const proc = Bun.spawn(
-		[
+export class ClaudeCodeExecutor implements Executor {
+	readonly name = "claude-code";
+
+	execute(options: {
+		prompt: string;
+		cwd: string;
+		resumeSessionId?: string;
+		timeout?: number;
+	}): ExecuteResult {
+		const timeoutMs = options.timeout ?? DEFAULT_TIMEOUT_MS;
+
+		const args = [
 			"claude",
 			"-p",
 			"--output-format",
 			"stream-json",
 			"--verbose",
 			"--dangerously-skip-permissions",
-			"--",
-			prompt,
-		],
-		{
-			cwd,
+		];
+
+		if (options.resumeSessionId) {
+			args.push("--resume", options.resumeSessionId);
+		}
+
+		args.push("--", options.prompt);
+
+		const env = { ...process.env } as Record<string, string>;
+		delete env.CLAUDECODE; // prevent nested session check
+
+		const proc = Bun.spawn(args, {
+			cwd: options.cwd,
 			stdout: "pipe",
 			stderr: "pipe",
-		},
-	);
+			env,
+		});
 
-	const TIMEOUT_MS = 120_000;
-	const SIGKILL_DELAY_MS = 5_000;
-	let timedOut = false;
-	let killTimeout: ReturnType<typeof setTimeout> | undefined;
+		// Log stderr in background
+		new Response(proc.stderr).text().then((text) => {
+			if (text.trim()) {
+				console.error("[claude stderr]", text.trim().slice(0, 500));
+			}
+		});
 
-	const timeout = setTimeout(() => {
-		timedOut = true;
-		proc.kill("SIGTERM");
-		killTimeout = setTimeout(() => {
-			proc.kill("SIGKILL");
-		}, SIGKILL_DELAY_MS);
-	}, TIMEOUT_MS);
+		let sessionResolve: (id: string) => void;
+		let sessionReject: (err: Error) => void;
+		const sessionId = new Promise<string>((resolve, reject) => {
+			sessionResolve = resolve;
+			sessionReject = reject;
+		});
 
-	// Log stderr in the background
-	const stderrReader = new Response(proc.stderr).text().then((text) => {
-		if (text.trim()) {
-			console.error("[claude stderr]", text.trim());
-		}
-	});
+		let killed = false;
+		let timedOut = false;
 
-	let assistantText = "";
-	let resultText = "";
+		const timeout = setTimeout(() => {
+			timedOut = true;
+			proc.kill("SIGTERM");
+			setTimeout(() => {
+				if (!killed) proc.kill("SIGKILL");
+			}, SIGKILL_DELAY_MS);
+		}, timeoutMs);
 
-	try {
-		for await (const raw of parseJSONLStream(proc.stdout)) {
-			if (!isClaudeStreamMessage(raw)) continue;
-			const msg = raw;
-
-			// Accumulate assistant text blocks
-			if (isAssistantMessage(msg)) {
-				for (const block of msg.message.content) {
-					if (block.type === "text" && typeof block.text === "string") {
-						assistantText += block.text;
+		async function* eventStream(): AsyncIterable<AgentEvent> {
+			try {
+				let gotInit = false;
+				for await (const raw of parseJSONLStream(proc.stdout)) {
+					const events = transformClaudeEvent(raw);
+					for (const event of events) {
+						if (event.kind === "init" && !gotInit) {
+							gotInit = true;
+							sessionResolve(event.sessionId);
+						}
+						yield event;
+						if (event.kind === "result") return;
 					}
 				}
-			}
-
-			// Prefer result.result as the clean final summary
-			if (isResultMessage(msg)) {
-				resultText = msg.result;
-				break;
+				if (!gotInit) {
+					sessionReject(new Error("Process ended without init event"));
+				}
+			} catch (err) {
+				sessionReject(err instanceof Error ? err : new Error(String(err)));
+				yield {
+					kind: "error",
+					message: timedOut
+						? `Agent timed out after ${timeoutMs / 1000}s`
+						: err instanceof Error
+							? err.message
+							: String(err),
+				};
+			} finally {
+				clearTimeout(timeout);
+				await proc.exited;
 			}
 		}
-	} finally {
-		clearTimeout(timeout);
-		if (killTimeout !== undefined) {
-			clearTimeout(killTimeout);
-		}
-		await stderrReader.catch(() => {});
-		await proc.exited;
-	}
 
-	const exitCode = proc.exitCode;
-	if (timedOut && !resultText && !assistantText) {
-		throw new Error("Claude Code timed out after 120 seconds");
+		return {
+			events: eventStream(),
+			sessionId,
+			async kill() {
+				killed = true;
+				clearTimeout(timeout);
+				proc.kill("SIGTERM");
+				setTimeout(() => proc.kill("SIGKILL"), SIGKILL_DELAY_MS);
+				await proc.exited;
+			},
+		};
 	}
-	if (exitCode !== 0 && !timedOut) {
-		throw new Error(`Claude Code exited with code ${exitCode}`);
-	}
-
-	return resultText || assistantText;
 }
