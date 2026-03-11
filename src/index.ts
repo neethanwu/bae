@@ -1,3 +1,4 @@
+import "./bot.ts"; // initialize telegram polling + message handlers
 import { app } from "./server.ts";
 
 const PORT = Number(process.env.BAE_PORT) || 3456;

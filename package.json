@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun run src/index.ts",
+    "dev": "bun run --env-file=.env src/index.ts",
     "check": "tsc --noEmit",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/"
