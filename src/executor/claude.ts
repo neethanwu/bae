@@ -1,6 +1,7 @@
 import { parseJSONLStream } from "../stream/parser.ts";
 import { transformClaudeEvent } from "../stream/transformer.ts";
 import type { AgentEvent } from "../stream/types.ts";
+import { spawnProcess } from "./process.ts";
 import type { ExecuteOptions, ExecuteResult, Executor } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -16,7 +17,6 @@ export class ClaudeCodeExecutor implements Executor {
 		const timeoutMs = options.timeout ?? DEFAULT_TIMEOUT_MS;
 
 		const args = [
-			"claude",
 			"-p",
 			"--output-format",
 			"stream-json",
@@ -30,13 +30,11 @@ export class ClaudeCodeExecutor implements Executor {
 
 		args.push("--", options.prompt);
 
-		const env = { ...process.env } as Record<string, string>;
+		const env = { ...process.env } as Record<string, string | undefined>;
 		delete env.CLAUDECODE; // prevent nested session check
 
-		const proc = Bun.spawn(args, {
+		const proc = spawnProcess("claude", args, {
 			cwd: options.cwd,
-			stdout: "pipe",
-			stderr: "pipe",
 			env,
 		});
 

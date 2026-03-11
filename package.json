@@ -20,6 +20,7 @@
   "dependencies": {
     "@chat-adapter/state-memory": "^4.17.0",
     "@chat-adapter/telegram": "^4.17.0",
+    "@hono/node-server": "^1.19.11",
     "better-sqlite3": "^12.6.2",
     "chat": "^4.17.0",
     "hono": "^4.12.5"

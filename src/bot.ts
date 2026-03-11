@@ -1,29 +1,51 @@
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createTelegramAdapter } from "@chat-adapter/telegram";
+import type { MessageData, Thread } from "chat";
 import { Chat } from "chat";
-import { handleMessage } from "./bridge.ts";
 
-const telegramAdapter = createTelegramAdapter({
-	mode: "auto", // polling locally, webhook in production (serverless)
-});
+export interface BotHandle {
+	start(): Promise<void>;
+	stop(): void;
+}
 
-export const bot = new Chat({
-	userName: "bae",
-	adapters: {
-		telegram: telegramAdapter,
-	},
-	state: createMemoryState(),
-});
+/**
+ * Create and configure the Chat SDK bot.
+ *
+ * Sets TELEGRAM_BOT_TOKEN in process.env before adapter init
+ * (Chat SDK reads it from env internally).
+ */
+export function createBot(
+	botToken: string,
+	onMessage: (thread: Thread, message: MessageData) => Promise<void>,
+): BotHandle {
+	process.env.TELEGRAM_BOT_TOKEN = botToken;
 
-// DM-only: every message in a new thread triggers handleMessage
-bot.onNewMessage(/./, async (thread, message) => {
-	await thread.subscribe();
-	await handleMessage(thread, message);
-});
+	const telegramAdapter = createTelegramAdapter({
+		mode: "auto", // polling locally, webhook in production (serverless)
+	});
 
-bot.onSubscribedMessage(async (thread, message) => {
-	await handleMessage(thread, message);
-});
+	const bot = new Chat({
+		userName: "bae",
+		adapters: {
+			telegram: telegramAdapter,
+		},
+		state: createMemoryState(),
+	});
 
-// Start polling (no-op if in webhook mode)
-void bot.initialize();
+	// DM-only: every message triggers onMessage
+	bot.onNewMessage(/./, async (thread, message) => {
+		await thread.subscribe();
+		await onMessage(thread, message);
+	});
+
+	bot.onSubscribedMessage(async (thread, message) => {
+		await onMessage(thread, message);
+	});
+
+	return {
+		start: () => bot.initialize(),
+		stop: () => {
+			// Chat SDK doesn't expose a stop method — process exit handles cleanup
+		},
+	};
+}

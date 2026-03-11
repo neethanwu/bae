@@ -1,4 +1,3 @@
-import { mkdirSync } from "node:fs";
 import type { MessageData, Thread } from "chat";
 import { handleCommand } from "./commands.ts";
 import { ClaudeCodeExecutor } from "./executor/claude.ts";
@@ -15,93 +14,99 @@ const TYPING_INTERVAL_MS = 4_000;
 const SPLIT_THRESHOLD = 3500; // Start new message before hitting Telegram's 4096 limit
 const LOG_PREVIEW_LEN = 80;
 
-const CWD = process.env.BAE_CWD || `${process.env.HOME}/baesment`;
-mkdirSync(CWD, { recursive: true });
-
-if (!process.env.BAE_ALLOWED_USERS) {
-	console.error(
-		"[FATAL] BAE_ALLOWED_USERS is required. Set it to a comma-separated list of Telegram user IDs.",
-	);
-	process.exit(1);
-}
-const ALLOWED_USERS = process.env.BAE_ALLOWED_USERS.split(",")
-	.map((s) => s.trim())
-	.filter(Boolean);
-if (ALLOWED_USERS.length === 0) {
-	console.error(
-		"[FATAL] BAE_ALLOWED_USERS is empty. At least one user ID is required.",
-	);
-	process.exit(1);
+export interface BridgeConfig {
+	cwd: string;
+	allowedUsers: string[];
+	dbPath?: string;
 }
 
-// Initialize session stack
-const store = new SessionStore();
-await store.waitReady();
-const executor = new ClaudeCodeExecutor();
-export const sessionManager = new SessionManager(store, executor, CWD);
-console.log(`[bae] Workspace: ${CWD}`);
-console.log(`[bae] Allowed users: ${ALLOWED_USERS.join(", ")}`);
-
-// Graceful shutdown
-function shutdown() {
-	console.log("[bae] Shutting down...");
-	sessionManager.close();
-	process.exit(0);
+export interface BridgeHandle {
+	handleMessage(
+		thread: Thread,
+		message: MessageData,
+		platform?: string,
+	): Promise<void>;
+	shutdown(): void;
 }
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
 
-export async function handleMessage(
-	thread: Thread,
-	message: MessageData,
-	platform = "telegram",
-): Promise<void> {
-	const userId = message.author?.userId ?? "";
-	if (!ALLOWED_USERS.includes(userId)) {
-		console.log(`[bae] Rejected message from unauthorized user: ${userId}`);
-		return;
-	}
+/**
+ * Create the Bae bridge — central orchestrator between IM and agent.
+ */
+export async function createBridge(
+	config: BridgeConfig,
+): Promise<BridgeHandle> {
+	const store = new SessionStore(config.dbPath);
+	await store.waitReady();
+	const executor = new ClaudeCodeExecutor();
+	const sessionManager = new SessionManager(store, executor, config.cwd);
 
-	const text = message.text;
-	if (!text || text.trim() === "") {
-		await thread.post("Only text messages are supported.");
-		return;
-	}
+	console.log(`[bae] Workspace: ${config.cwd}`);
+	console.log(`[bae] Allowed users: ${config.allowedUsers.join(", ")}`);
 
-	// Command routing
-	const cmdResponse = handleCommand(text, sessionManager, platform, thread.id);
-	if (cmdResponse !== null) {
-		await thread.post(cmdResponse);
-		return;
-	}
+	async function handleMessage(
+		thread: Thread,
+		message: MessageData,
+		platform = "telegram",
+	): Promise<void> {
+		const userId = message.author?.userId ?? "";
+		if (!config.allowedUsers.includes(userId)) {
+			console.log(`[bae] Rejected message from unauthorized user: ${userId}`);
+			return;
+		}
 
-	const startTime = Date.now();
-	console.log(
-		`[bae] <- ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
-	);
+		const text = message.text;
+		if (!text || text.trim() === "") {
+			await thread.post("Only text messages are supported.");
+			return;
+		}
 
-	// Start typing indicator (repeat every 4s since Telegram expires it)
-	await thread.startTyping().catch(() => {});
-	const typingInterval = setInterval(() => {
-		thread.startTyping().catch(() => {});
-	}, TYPING_INTERVAL_MS);
-
-	try {
-		const events = await sessionManager.handleMessage(
+		// Command routing
+		const cmdResponse = handleCommand(
+			text,
+			sessionManager,
 			platform,
 			thread.id,
-			text,
+		);
+		if (cmdResponse !== null) {
+			await thread.post(cmdResponse);
+			return;
+		}
+
+		const startTime = Date.now();
+		console.log(
+			`[bae] <- ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
 		);
 
-		await streamResponse(thread, events, startTime, typingInterval);
-	} catch (err) {
-		console.error("[bae] Error:", err);
-		await thread.post(
-			"Something went wrong processing your message. Check the server logs for details.",
-		);
-	} finally {
-		clearInterval(typingInterval);
+		// Start typing indicator (repeat every 4s since Telegram expires it)
+		await thread.startTyping().catch(() => {});
+		const typingInterval = setInterval(() => {
+			thread.startTyping().catch(() => {});
+		}, TYPING_INTERVAL_MS);
+
+		try {
+			const events = await sessionManager.handleMessage(
+				platform,
+				thread.id,
+				text,
+			);
+
+			await streamResponse(thread, events, startTime, typingInterval);
+		} catch (err) {
+			console.error("[bae] Error:", err);
+			await thread.post(
+				"Something went wrong processing your message. Check the server logs for details.",
+			);
+		} finally {
+			clearInterval(typingInterval);
+		}
 	}
+
+	function shutdown() {
+		console.log("[bae] Shutting down...");
+		sessionManager.close();
+	}
+
+	return { handleMessage, shutdown };
 }
 
 /**

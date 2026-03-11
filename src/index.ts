@@ -1,12 +1,19 @@
-import "./bot.ts"; // initialize telegram polling + message handlers
-import { app } from "./server.ts";
+/**
+ * Public API facade for Bae.
+ *
+ * External consumers import from here.
+ * CLI and bot entry points import internals directly.
+ */
 
-const PORT = Number(process.env.BAE_PORT) || 3456;
-
-console.log(`Bae starting on port ${PORT}...`);
-
-export default {
-	port: PORT,
-	hostname: "127.0.0.1",
-	fetch: app.fetch,
-};
+export type { BotHandle } from "./bot.ts";
+export { createBot } from "./bot.ts";
+export type { BridgeConfig, BridgeHandle } from "./bridge.ts";
+export { createBridge } from "./bridge.ts";
+export { ClaudeCodeExecutor } from "./executor/claude.ts";
+export type {
+	ExecuteOptions,
+	ExecuteResult,
+	Executor,
+} from "./executor/types.ts";
+export { SessionManager } from "./session/manager.ts";
+export { SessionStore } from "./session/store.ts";
