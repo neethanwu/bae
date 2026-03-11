@@ -1,11 +1,19 @@
 import { mkdirSync } from "node:fs";
 import type { MessageData, Thread } from "chat";
+import { handleCommand } from "./commands.ts";
 import { ClaudeCodeExecutor } from "./executor/claude.ts";
+import {
+	formatMetadata,
+	formatToolStatus,
+	splitMessage,
+} from "./formatter/telegram.ts";
 import { SessionManager } from "./session/manager.ts";
 import { SessionStore } from "./session/store.ts";
+import type { AgentEvent } from "./stream/types.ts";
 
-const MAX_RESPONSE_LENGTH = 4000;
-const TYPING_INTERVAL_MS = 4_000; // Telegram typing expires after ~5s
+const TYPING_INTERVAL_MS = 4_000;
+const SPLIT_THRESHOLD = 3500; // Start new message before hitting Telegram's 4096 limit
+const LOG_PREVIEW_LEN = 80;
 
 const CWD = process.env.BAE_CWD || `${process.env.HOME}/baesment`;
 mkdirSync(CWD, { recursive: true });
@@ -29,7 +37,7 @@ if (ALLOWED_USERS.length === 0) {
 // Initialize session stack
 const store = new SessionStore();
 const executor = new ClaudeCodeExecutor();
-const sessionManager = new SessionManager(store, executor, CWD);
+export const sessionManager = new SessionManager(store, executor, CWD);
 console.log(`[bae] Workspace: ${CWD}`);
 console.log(`[bae] Allowed users: ${ALLOWED_USERS.join(", ")}`);
 
@@ -59,20 +67,10 @@ export async function handleMessage(
 		return;
 	}
 
-	// Commands
-	if (text === "/start") {
-		await thread.post(
-			"Bae is ready. Send me a message and I'll pass it to your agent.",
-		);
-		return;
-	}
-
-	if (text === "/new") {
-		sessionManager.clearSession("telegram", thread.id);
-		console.log(`[bae] Session cleared for thread ${thread.id}`);
-		await thread.post(
-			"Session cleared. Next message starts a fresh conversation.",
-		);
+	// Command routing
+	const cmdResponse = handleCommand(text, sessionManager, platform, thread.id);
+	if (cmdResponse !== null) {
+		await thread.post(cmdResponse);
 		return;
 	}
 
@@ -94,47 +92,7 @@ export async function handleMessage(
 			text,
 		);
 
-		let responseText = "";
-		let toolCount = 0;
-
-		for await (const event of events) {
-			if (event.kind === "init") {
-				console.log(`[bae] Session: ${event.sessionId}`);
-			}
-			if (event.kind === "text_delta") {
-				responseText += event.text;
-			}
-			if (event.kind === "tool_use") {
-				toolCount++;
-				console.log(`[bae] Tool: ${event.toolName}`);
-			}
-			if (event.kind === "result") {
-				if (!responseText && event.text) {
-					responseText = event.text;
-				}
-				break;
-			}
-			if (event.kind === "error") {
-				console.error(`[bae] Agent error: ${event.message}`);
-				responseText = `Error: ${event.message}`;
-				break;
-			}
-		}
-
-		if (!responseText) {
-			responseText = "(no response from agent)";
-		}
-
-		const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-		const truncated =
-			responseText.length > MAX_RESPONSE_LENGTH
-				? `${responseText.slice(0, MAX_RESPONSE_LENGTH)}\n\n... (truncated)`
-				: responseText;
-
-		await thread.post(truncated);
-		console.log(
-			`[bae] -> ${responseText.slice(0, 80)}${responseText.length > 80 ? "..." : ""} (${elapsed}s${toolCount > 0 ? `, ${toolCount} tools` : ""})`,
-		);
+		await streamResponse(thread, events, startTime, typingInterval);
 	} catch (err) {
 		console.error("[bae] Error:", err);
 		await thread.post(
@@ -143,4 +101,169 @@ export async function handleMessage(
 	} finally {
 		clearInterval(typingInterval);
 	}
+}
+
+/**
+ * Consume agent events and stream them progressively to the IM thread.
+ *
+ * Uses a "push stream" pattern with a buffered queue: the event loop pushes
+ * text chunks into a queue that an async generator consumes. When accumulated
+ * text approaches the platform limit (~3500 chars), the generator ends
+ * (finalizing the message) and a new one starts for the continuation.
+ */
+async function streamResponse(
+	thread: Thread,
+	events: AsyncIterable<AgentEvent>,
+	startTime: number,
+	typingInterval: ReturnType<typeof setInterval>,
+): Promise<void> {
+	let hasText = false;
+	let logPreview = "";
+	let toolCount = 0;
+	let messageCount = 0;
+	let resultEvent: Extract<AgentEvent, { kind: "result" }> | null = null;
+
+	// Buffered push stream: queue ensures no chunks are dropped
+	let buffer: (string | null)[] = [];
+	let streamResolve: ((value: undefined) => void) | null = null;
+	let currentStreamLength = 0;
+
+	async function* createStream(): AsyncGenerator<string> {
+		while (true) {
+			while (buffer.length === 0) {
+				await new Promise<void>((resolve) => {
+					streamResolve = resolve;
+				});
+			}
+			const chunk = buffer.shift() ?? null;
+			if (chunk === null) break;
+			yield chunk;
+		}
+	}
+
+	function pushChunk(text: string) {
+		currentStreamLength += text.length;
+		buffer.push(text);
+		streamResolve?.(undefined);
+		streamResolve = null;
+	}
+
+	function endStream() {
+		buffer.push(null);
+		streamResolve?.(undefined);
+		streamResolve = null;
+	}
+
+	// Collect post promises to await at the end (non-blocking splits)
+	const postPromises: Promise<unknown>[] = [];
+	let activePostPromise: Promise<unknown> | null = null;
+
+	function startNewStream() {
+		currentStreamLength = 0;
+		buffer = [];
+		streamResolve = null;
+		const stream = createStream();
+		activePostPromise = thread.post(stream);
+		postPromises.push(activePostPromise);
+		messageCount++;
+	}
+
+	let isStreaming = false;
+
+	for await (const event of events) {
+		if (event.kind === "init") {
+			console.log(`[bae] Session: ${event.sessionId}`);
+		}
+
+		if (event.kind === "text_delta") {
+			hasText = true;
+			if (logPreview.length < LOG_PREVIEW_LEN) {
+				logPreview += event.text.slice(0, LOG_PREVIEW_LEN - logPreview.length);
+			}
+
+			// Start streaming if not yet started
+			if (!isStreaming) {
+				// Stop typing indicator once text starts flowing
+				clearInterval(typingInterval);
+				startNewStream();
+				isStreaming = true;
+			}
+
+			// Check if this chunk would push us past the split threshold
+			if (currentStreamLength + event.text.length > SPLIT_THRESHOLD) {
+				// End current message, start a new one
+				endStream();
+				await activePostPromise;
+				startNewStream();
+			}
+
+			pushChunk(event.text);
+		}
+
+		if (event.kind === "tool_use") {
+			toolCount++;
+			const status = formatToolStatus(event.toolName, event.input);
+			console.log(`[bae] Tool: ${status}`);
+			// Re-enable typing during tool use gaps (stream pauses while agent works)
+			thread.startTyping().catch(() => {});
+		}
+
+		if (event.kind === "result") {
+			resultEvent = event;
+			if (!hasText && event.text) {
+				hasText = true;
+				logPreview = event.text.slice(0, LOG_PREVIEW_LEN);
+			}
+			break;
+		}
+
+		if (event.kind === "error") {
+			console.error(`[bae] Agent error: ${event.message}`);
+			if (isStreaming) {
+				endStream();
+				await Promise.all(postPromises);
+			}
+			await thread.post(
+				"Something went wrong. Check the server logs for details.",
+			);
+			return;
+		}
+	}
+
+	// Finalize: append metadata footer and close the stream
+	const elapsed = Date.now() - startTime;
+	const footer = formatMetadata(elapsed, resultEvent?.costUsd);
+
+	if (!hasText) {
+		if (isStreaming) {
+			endStream();
+			await Promise.all(postPromises);
+		}
+		await thread.post("(no response from agent)");
+		return;
+	}
+
+	// If text came from result event (no text_deltas streamed), post it directly
+	if (!isStreaming) {
+		const fullText = (resultEvent?.text ?? "") + footer;
+		// Use splitMessage for safety — result text could exceed platform limit
+		for (const chunk of splitMessage(fullText)) {
+			await thread.post(chunk);
+			messageCount++;
+		}
+	} else if (currentStreamLength + footer.length > SPLIT_THRESHOLD) {
+		// Footer doesn't fit in current stream — post separately
+		endStream();
+		await Promise.all(postPromises);
+		await thread.post(footer.trim());
+		messageCount++;
+	} else {
+		pushChunk(footer);
+		endStream();
+		await Promise.all(postPromises);
+	}
+
+	console.log(
+		`[bae] -> ${logPreview}${logPreview.length >= LOG_PREVIEW_LEN ? "..." : ""} (${(elapsed / 1000).toFixed(1)}s${toolCount > 0 ? `, ${toolCount} tools` : ""}${messageCount > 1 ? `, ${messageCount} messages` : ""})`,
+	);
 }

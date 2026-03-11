@@ -66,6 +66,11 @@ export class SessionStore {
 				UNIQUE(platform, thread_id)
 			)
 		`);
+
+		// Reset any sessions stuck in "running" from a previous crash
+		this.db.run(
+			"UPDATE sessions SET status = 'idle', updated_at = datetime('now') WHERE status = 'running'",
+		);
 	}
 
 	getOrCreate(platform: string, threadId: string, defaultCwd: string): Session {

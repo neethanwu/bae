@@ -13,7 +13,6 @@ interface StreamMessage {
 	session_id?: string;
 	message?: { content?: ContentBlock[] };
 	result?: string;
-	duration_ms?: number;
 	cost_usd?: number;
 }
 
@@ -41,13 +40,14 @@ export function transformClaudeEvent(
 				events.push({ kind: "text_delta", text: block.text });
 			}
 			if (block.type === "tool_use" && typeof block.name === "string") {
+				const input =
+					block.input != null && typeof block.input === "object"
+						? (block.input as Record<string, unknown>)
+						: {};
 				events.push({
 					kind: "tool_use",
 					toolName: block.name,
-					input:
-						typeof block.input === "string"
-							? block.input
-							: JSON.stringify(block.input ?? {}),
+					input,
 				});
 			}
 		}
@@ -60,8 +60,6 @@ export function transformClaudeEvent(
 			{
 				kind: "result",
 				text: msg.result,
-				duration:
-					typeof msg.duration_ms === "number" ? msg.duration_ms : undefined,
 				costUsd: typeof msg.cost_usd === "number" ? msg.cost_usd : undefined,
 			},
 		];

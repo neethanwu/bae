@@ -5,6 +5,10 @@
 export type AgentEvent =
 	| { kind: "init"; sessionId: string }
 	| { kind: "text_delta"; text: string }
-	| { kind: "tool_use"; toolName: string; input: string }
-	| { kind: "result"; text: string; duration?: number; costUsd?: number }
+	| { kind: "tool_use"; toolName: string; input: Record<string, unknown> }
+	| {
+			kind: "result";
+			text: string;
+			costUsd?: number;
+	  }
 	| { kind: "error"; message: string };

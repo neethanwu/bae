@@ -9,11 +9,15 @@ CLAUDE.md
 # Docs (local reference only)
 docs/
 
+# Spike scripts
+spike/
+
+# Todos
+todos/
 
 # OS
 .DS_Store
 
 # Agent/skill metadata
 .agents/
-.claude/
 skills-lock.json
