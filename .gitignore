@@ -8,3 +8,12 @@ CLAUDE.md
 
 # Docs (local reference only)
 docs/
+
+
+# OS
+.DS_Store
+
+# Agent/skill metadata
+.agents/
+.claude/
+skills-lock.json
