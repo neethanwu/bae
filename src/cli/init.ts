@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
@@ -7,42 +7,56 @@ import * as p from "@clack/prompts";
 const BAE_DIR = join(homedir(), ".bae");
 const ENV_FILE = join(BAE_DIR, ".env");
 
+function loadExistingConfig(): Record<string, string> {
+	if (!existsSync(ENV_FILE)) return {};
+	const config: Record<string, string> = {};
+	for (const line of readFileSync(ENV_FILE, "utf-8").split("\n")) {
+		const trimmed = line.trim();
+		if (!trimmed || trimmed.startsWith("#")) continue;
+		const eq = trimmed.indexOf("=");
+		if (eq === -1) continue;
+		config[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+	}
+	return config;
+}
+
 export async function runInit(): Promise<void> {
 	p.intro("Bae Setup");
+
+	const existing = loadExistingConfig();
+	const hasExisting = Object.keys(existing).length > 0;
+
+	if (hasExisting) {
+		const reconfigure = await p.confirm({
+			message: "Existing config found. Reconfigure?",
+			initialValue: true,
+		});
+
+		if (p.isCancel(reconfigure) || !reconfigure) {
+			p.outro("Run `bae start` to begin.");
+			return;
+		}
+	}
 
 	// 1. Detect agent CLI
 	const agentInfo = detectAgent();
 	if (agentInfo) {
 		p.log.success(`${agentInfo.name} found (${agentInfo.version})`);
+		// Check auth status
+		try {
+			execSync("claude auth status", { stdio: "pipe", timeout: 5000 });
+			p.log.success("claude authenticated");
+		} catch {
+			p.log.warn("claude may not be authenticated. Run: claude auth login");
+		}
 	} else {
 		p.log.warn(
 			"No agent CLI found. Install one first (e.g. npm install -g @anthropic-ai/claude-code)",
 		);
 	}
 
-	// 2. Platform selection
-	const platform = await p.select({
-		message: "Which messaging platform?",
-		options: [
-			{ label: "Telegram", value: "telegram" },
-			{ label: "Slack (coming soon)", value: "slack", hint: "not yet" },
-			{
-				label: "Discord (coming soon)",
-				value: "discord",
-				hint: "not yet",
-			},
-		],
-	});
-
-	if (p.isCancel(platform)) {
-		p.cancel("Setup cancelled.");
-		process.exit(0);
-	}
-
-	if (platform !== "telegram") {
-		p.log.warn("Only Telegram is supported in this release. Select Telegram.");
-		process.exit(1);
-	}
+	// 2. Platform
+	p.note("Slack and Discord support coming soon.", "Other platforms");
 
 	// 3. Collect bot token
 	p.log.info(
@@ -55,6 +69,7 @@ export async function runInit(): Promise<void> {
 	const botToken = await p.text({
 		message: "Bot token:",
 		placeholder: "123456:ABC-DEF...",
+		initialValue: existing.TELEGRAM_BOT_TOKEN,
 		validate: (val) => {
 			if (!val || !val.includes(":"))
 				return "Invalid token format (expected id:secret)";
@@ -76,6 +91,7 @@ export async function runInit(): Promise<void> {
 	}
 
 	// 4. User restriction
+	const hasExistingUsers = !!existing.BAE_ALLOWED_USERS;
 	const restrictUsers = await p.confirm({
 		message: "Restrict to specific users? (recommended)",
 		initialValue: true,
@@ -95,6 +111,7 @@ export async function runInit(): Promise<void> {
 		const userIds = await p.text({
 			message: "Your Telegram user ID(s):",
 			placeholder: "123456789 (comma-separated for multiple)",
+			initialValue: hasExistingUsers ? existing.BAE_ALLOWED_USERS : undefined,
 			validate: (val) => {
 				if (!val) return "At least one user ID is required";
 				const ids = val.split(",").map((s) => s.trim());
@@ -116,8 +133,8 @@ export async function runInit(): Promise<void> {
 	const defaultCwd = join(homedir(), "baesment");
 	const workspace = await p.text({
 		message: "Workspace directory (where the agent works):",
-		defaultValue: defaultCwd,
-		placeholder: defaultCwd,
+		defaultValue: existing.BAE_CWD || defaultCwd,
+		placeholder: existing.BAE_CWD || defaultCwd,
 	});
 
 	if (p.isCancel(workspace)) {
@@ -135,26 +152,10 @@ export async function runInit(): Promise<void> {
 
 	const envContent = [
 		`TELEGRAM_BOT_TOKEN=${botToken}`,
-		allowedUsers ? `BAE_ALLOWED_USERS=${allowedUsers}` : "",
-		`BAE_CWD=${workspace}`,
-		"BAE_PORT=3456",
-	]
-		.filter(Boolean)
-		.join("\n");
-
-	// Check for existing .env
-	if (existsSync(ENV_FILE)) {
-		const overwrite = await p.confirm({
-			message: `${ENV_FILE} already exists. Overwrite?`,
-			initialValue: false,
-		});
-
-		if (p.isCancel(overwrite) || !overwrite) {
-			p.log.warn("Keeping existing config.");
-			p.outro("Run `bae start` to begin.");
-			return;
-		}
-	}
+		`BAE_ALLOWED_USERS=${allowedUsers}`,
+		`BAE_CWD=${resolvedWorkspace}`,
+		`BAE_PORT=${existing.BAE_PORT || "3456"}`,
+	].join("\n");
 
 	writeFileSync(ENV_FILE, `${envContent}\n`, { mode: 0o600 });
 	p.log.success(`Config written to ${ENV_FILE}`);
@@ -173,7 +174,6 @@ function detectAgent(): AgentInfo | null {
 			encoding: "utf-8",
 			timeout: 5000,
 		}).trim();
-		// Extract version from output like "claude 1.2.3" or similar
 		const match = output.match(/(\d+\.\d+[.\d]*)/);
 		return {
 			name: "Claude Code",

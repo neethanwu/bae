@@ -1,5 +1,5 @@
 {
-  "name": "bae-cli",
+  "name": "bae-bridge",
   "version": "0.1.0",
   "description": "Bridge your messaging apps to CLI coding agents",
   "module": "src/index.ts",

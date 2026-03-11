@@ -49,7 +49,10 @@ export async function createBridge(
 		platform = "telegram",
 	): Promise<void> {
 		const userId = message.author?.userId ?? "";
-		if (!config.allowedUsers.includes(userId)) {
+		if (
+			config.allowedUsers.length > 0 &&
+			!config.allowedUsers.includes(userId)
+		) {
 			console.log(`[bae] Rejected message from unauthorized user: ${userId}`);
 			return;
 		}
