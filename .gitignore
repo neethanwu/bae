@@ -22,3 +22,4 @@ todos/
 # Agent/skill metadata
 .agents/
 skills-lock.json
+compound-engineering.local.md

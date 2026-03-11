@@ -8,7 +8,10 @@
     "bae": "./dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
@@ -20,6 +23,7 @@
     "dev": "bun run --env-file=.env src/cli.ts start",
     "build": "tsup",
     "check": "tsc --noEmit",
+    "test": "bun test",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/"
   },

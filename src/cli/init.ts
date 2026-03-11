@@ -1,29 +1,106 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
+import { parseEnvFile } from "./env.ts";
 
 const BAE_DIR = join(homedir(), ".bae");
 const ENV_FILE = join(BAE_DIR, ".env");
 
-function loadExistingConfig(): Record<string, string> {
-	if (!existsSync(ENV_FILE)) return {};
-	const config: Record<string, string> = {};
-	for (const line of readFileSync(ENV_FILE, "utf-8").split("\n")) {
-		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith("#")) continue;
-		const eq = trimmed.indexOf("=");
-		if (eq === -1) continue;
-		config[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+function parseFlags(argv: string[]): Record<string, string> {
+	const flags: Record<string, string> = {};
+	for (const arg of argv) {
+		const match = arg.match(/^--([a-z-]+)=(.+)$/);
+		if (match?.[1] && match[2]) {
+			flags[match[1]] = match[2];
+		}
 	}
-	return config;
+	return flags;
 }
 
-export async function runInit(): Promise<void> {
+function resolveWorkspace(workspace: string): string {
+	return workspace.startsWith("~")
+		? workspace.replace("~", homedir())
+		: workspace;
+}
+
+function writeConfig(values: {
+	botToken: string;
+	allowedUsers: string;
+	workspace: string;
+	existingPort?: string;
+}): void {
+	const resolvedWorkspace = resolveWorkspace(values.workspace);
+
+	mkdirSync(BAE_DIR, { recursive: true, mode: 0o700 });
+	mkdirSync(resolvedWorkspace, { recursive: true });
+
+	const envContent = [
+		`TELEGRAM_BOT_TOKEN=${values.botToken}`,
+		`BAE_ALLOWED_USERS=${values.allowedUsers}`,
+		`BAE_CWD=${resolvedWorkspace}`,
+		`BAE_PORT=${values.existingPort || "3456"}`,
+	].join("\n");
+
+	writeFileSync(ENV_FILE, `${envContent}\n`, { mode: 0o600 });
+}
+
+export async function runInit(argv: string[] = []): Promise<void> {
+	const flags = parseFlags(argv);
+	const existing = parseEnvFile(ENV_FILE);
+
+	// Headless mode: all required flags provided
+	if (flags.token && flags["allowed-users"]) {
+		const botToken = flags.token;
+
+		// Validate token format
+		if (!botToken.includes(":")) {
+			console.error("Invalid token format (expected id:secret)");
+			process.exit(1);
+		}
+
+		// Validate token against Telegram API
+		const botInfo = await validateToken(botToken);
+		if (!botInfo) {
+			console.error("Invalid token. Could not connect to Telegram.");
+			process.exit(1);
+		}
+		console.log(`Connected as @${botInfo.username}`);
+
+		// Validate user IDs are numeric
+		const userIds = flags["allowed-users"].split(",").map((s) => s.trim());
+		if (userIds.some((id) => !/^\d+$/.test(id))) {
+			console.error("User IDs must be numeric");
+			process.exit(1);
+		}
+
+		const workspace =
+			flags.workspace || existing.BAE_CWD || join(homedir(), "baesment");
+
+		writeConfig({
+			botToken,
+			allowedUsers: flags["allowed-users"],
+			workspace,
+			existingPort: existing.BAE_PORT,
+		});
+
+		console.log(`Config written to ${ENV_FILE}`);
+		console.log("Run `bae start` to begin.");
+		return;
+	}
+
+	// Interactive mode
+	console.log(`
+ ██████╗  █████╗ ███████╗
+ ██╔══██╗██╔══██╗██╔════╝
+ ██████╔╝███████║█████╗
+ ██╔══██╗██╔══██║██╔══╝
+ ██████╔╝██║  ██║███████╗
+ ╚═════╝ ╚═╝  ╚═╝╚══════╝
+`);
 	p.intro("Bae Setup");
 
-	const existing = loadExistingConfig();
 	const hasExisting = Object.keys(existing).length > 0;
 
 	if (hasExisting) {
@@ -142,24 +219,15 @@ export async function runInit(): Promise<void> {
 		process.exit(0);
 	}
 
-	const resolvedWorkspace = workspace.startsWith("~")
-		? workspace.replace("~", homedir())
-		: workspace;
-
 	// 6. Write .env
-	mkdirSync(BAE_DIR, { recursive: true, mode: 0o700 });
-	mkdirSync(resolvedWorkspace, { recursive: true });
+	writeConfig({
+		botToken,
+		allowedUsers,
+		workspace,
+		existingPort: existing.BAE_PORT,
+	});
 
-	const envContent = [
-		`TELEGRAM_BOT_TOKEN=${botToken}`,
-		`BAE_ALLOWED_USERS=${allowedUsers}`,
-		`BAE_CWD=${resolvedWorkspace}`,
-		`BAE_PORT=${existing.BAE_PORT || "3456"}`,
-	].join("\n");
-
-	writeFileSync(ENV_FILE, `${envContent}\n`, { mode: 0o600 });
 	p.log.success(`Config written to ${ENV_FILE}`);
-
 	p.outro("Run `bae start` to begin.");
 }
 

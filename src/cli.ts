@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadEnvFile } from "./cli/env.ts";
 
 const BAE_DIR = join(homedir(), ".bae");
 const PID_FILE = join(BAE_DIR, "bae.pid");
@@ -83,43 +84,6 @@ function logs() {
 }
 
 /**
- * Load ~/.bae/.env into process.env (simple KEY=VALUE parser).
- */
-function loadEnvFile(path: string): void {
-	if (!existsSync(path)) return;
-	const content = readFileSync(path, "utf-8");
-	for (const line of content.split("\n")) {
-		let trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith("#")) continue;
-
-		// Strip 'export ' prefix
-		if (trimmed.startsWith("export ")) trimmed = trimmed.slice(7);
-
-		const eqIdx = trimmed.indexOf("=");
-		if (eqIdx === -1) continue;
-		const key = trimmed.slice(0, eqIdx).trim();
-		let value = trimmed.slice(eqIdx + 1).trim();
-
-		// Strip matching outer quotes
-		if (
-			(value.startsWith('"') && value.endsWith('"')) ||
-			(value.startsWith("'") && value.endsWith("'"))
-		) {
-			value = value.slice(1, -1);
-		}
-
-		// Strip inline comments
-		const commentIdx = value.indexOf(" #");
-		if (commentIdx !== -1) value = value.slice(0, commentIdx).trim();
-
-		// Don't override existing env vars
-		if (process.env[key] === undefined) {
-			process.env[key] = value;
-		}
-	}
-}
-
-/**
  * Check if a process with given PID is alive.
  */
 function isProcessAlive(pid: number): boolean {
@@ -184,6 +148,14 @@ async function start() {
 		.map((s) => s.trim())
 		.filter(Boolean);
 
+	if (allowedUsers.length === 0) {
+		console.error(
+			"BAE_ALLOWED_USERS is empty. At least one user ID is required for security.\n" +
+				"Run `bae init` to configure, or set BAE_ALLOWED_USERS in ~/.bae/.env",
+		);
+		process.exit(1);
+	}
+
 	const cwd = process.env.BAE_CWD || join(homedir(), "baesment");
 	const port = Number(process.env.BAE_PORT) || 3456;
 
@@ -240,7 +212,7 @@ async function start() {
 	await bot.start();
 
 	// Write PID:PORT only after successful startup
-	writeFileSync(PID_FILE, `${process.pid}:${port}`);
+	writeFileSync(PID_FILE, `${process.pid}:${port}`, { mode: 0o600 });
 
 	console.log(`[bae] Bae running on port ${port}`);
 
@@ -326,5 +298,5 @@ async function status() {
 
 async function init() {
 	const { runInit } = await import("./cli/init.ts");
-	await runInit();
+	await runInit(args.slice(1));
 }

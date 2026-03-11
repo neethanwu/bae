@@ -32,6 +32,7 @@ export class ClaudeCodeExecutor implements Executor {
 
 		const env = { ...process.env } as Record<string, string | undefined>;
 		delete env.CLAUDECODE; // prevent nested session check
+		delete env.TELEGRAM_BOT_TOKEN; // don't leak bot token to spawned agents
 
 		const proc = spawnProcess("claude", args, {
 			cwd: options.cwd,
