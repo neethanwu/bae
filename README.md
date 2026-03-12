@@ -26,19 +26,19 @@ Your Phone (Telegram)  →  Bae (bridge)  →  Local Agent (on your machine)
 ## Architecture
 
 ```
-Your Phone                    Your Machine
-┌────────────┐               ┌──────────────────────────────────────┐
-│            │               │                                      │
-│  Telegram  │◀── polling ──▶│  ┌───────┐      ┌─────────────────┐ │
-│  Slack     │◀── polling ──▶│  │  Bae  │─────▶│  Local Agents   │ │
-│  Discord   │◀── polling ──▶│  │       │◀─────│  Claude Code    │ │
-│            │               │  └───────┘      │  Codex          │ │
-└────────────┘               │                 │  OpenCode       │ │
-                             │                 │  Amp, etc.      │ │
-                             │                 └─────────────────┘ │
-                             │                                      │
-                             │  Your filesystem, skills, MCP servers│
-                             └──────────────────────────────────────┘
+Your Phone                     Your Machine
+┌─────────────┐               ┌─────────────────────────────────────────┐
+│             │               │                                         │
+│  Telegram   │◀── polling ──▶│  ┌───────┐       ┌───────────────────┐  │
+│  Slack      │◀── polling ──▶│  │  Bae  │──────▶│  Local Agents     │  │
+│  Discord    │◀── polling ──▶│  │       │◀──────│  Claude Code      │  │
+│             │               │  └───────┘       │  Codex            │  │
+└─────────────┘               │                  │  OpenCode         │  │
+                              │                  │  Amp, etc.        │  │
+                              │                  └───────────────────┘  │
+                              │                                         │
+                              │  Your filesystem, skills, MCP servers   │
+                              └─────────────────────────────────────────┘
 ```
 
 ## Tech Stack
@@ -46,7 +46,7 @@ Your Phone                    Your Machine
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Language | TypeScript | Type safety for message parsing |
-| Runtime | Bun | Native TS, built-in SQLite, fast subprocess spawning, single binary via `bun build --compile` |
+| Runtime | Node.js 20+ / Bun | Cross-runtime; SQLite via `better-sqlite3` (Node) or `bun:sqlite` (Bun) |
 | HTTP | Hono | Health check + future dashboard API (~14kb) |
 | IM | Vercel Chat SDK | Unified interface for Telegram, Slack, Discord — long polling + webhook |
 | Agent | Subprocess | Agent-agnostic; `--resume` for conversation continuity |
@@ -55,29 +55,19 @@ Your Phone                    Your Machine
 ## Install
 
 ```bash
-# Homebrew (macOS)
-brew install bae-dev/tap/bae
-
-# curl
-curl -fsSL https://getbae.dev/install | bash
-
-# npm
-bun add -g bae
-
-# Docker
-docker run -d --name bae \
-  -v ~/.bae:/root/.bae \
-  -v ~/.claude:/root/.claude \
-  -e TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN \
-  -e BAE_ALLOWED_USERS=$BAE_ALLOWED_USERS \
-  ghcr.io/bae-dev/bae:latest
+npm install -g bae-bridge
 ```
 
-A desktop app (macOS, Windows, Linux) is planned.
+Then run the setup wizard:
+
+```bash
+bae init
+bae start
+```
 
 ## Status
 
-Phase 1a complete — session continuity working. See [IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for roadmap.
+Phase 1 complete — Telegram bridge with session continuity, streaming responses, daemon mode, and CLI.
 
 ## License
 
