@@ -92,6 +92,7 @@ export async function createBridge(
 				thread.id,
 				text,
 			);
+			console.log(`[bae] Spawned in ${Date.now() - startTime}ms`);
 
 			await streamResponse(thread, events, startTime, typingInterval);
 		} catch (err) {
@@ -181,10 +182,15 @@ async function streamResponse(
 
 	for await (const event of events) {
 		if (event.kind === "init") {
-			console.log(`[bae] Session: ${event.sessionId}`);
+			console.log(
+				`[bae] Session: ${event.sessionId} (${Date.now() - startTime}ms)`,
+			);
 		}
 
 		if (event.kind === "text_delta") {
+			if (!hasText) {
+				console.log(`[bae] First text at ${Date.now() - startTime}ms`);
+			}
 			hasText = true;
 			if (logPreview.length < LOG_PREVIEW_LEN) {
 				logPreview += event.text.slice(0, LOG_PREVIEW_LEN - logPreview.length);

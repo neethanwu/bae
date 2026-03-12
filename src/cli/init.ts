@@ -85,7 +85,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			existingPort: existing.BAE_PORT,
 		});
 
-		console.log(`Config written to ${ENV_FILE}`);
+		console.log(`Ready! @${botInfo.username} → ${workspace}`);
 		console.log("Run `bae start` to begin.");
 		return;
 	}
@@ -227,7 +227,22 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		existingPort: existing.BAE_PORT,
 	});
 
-	p.log.success(`Config written to ${ENV_FILE}`);
+	const userCount = allowedUsers
+		? allowedUsers.split(",").filter(Boolean).length
+		: 0;
+	const accessLabel =
+		userCount > 0
+			? `${userCount} authorized user${userCount > 1 ? "s" : ""}`
+			: "unrestricted";
+
+	p.note(
+		[
+			`Bot:        @${botInfo.username}`,
+			`Workspace:  ${workspace}`,
+			`Access:     ${accessLabel}`,
+		].join("\n"),
+		"You're all set!",
+	);
 	p.outro("Run `bae start` to begin.");
 }
 

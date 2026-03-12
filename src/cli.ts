@@ -18,6 +18,7 @@ import { loadEnvFile } from "./cli/env.ts";
 const BAE_DIR = join(homedir(), ".bae");
 const PID_FILE = join(BAE_DIR, "bae.pid");
 const ENV_FILE = join(BAE_DIR, ".env");
+const LOG_FILE = join(BAE_DIR, "bae.log");
 declare const __VERSION__: string;
 const VERSION = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.1.0";
 
@@ -71,8 +72,6 @@ function printHelp() {
     --help           Show this message
 `);
 }
-
-const LOG_FILE = join(BAE_DIR, "bae.log");
 
 function logs() {
 	if (!existsSync(LOG_FILE)) {
