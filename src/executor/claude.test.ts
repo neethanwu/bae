@@ -1,72 +1,27 @@
 import { describe, expect, test } from "bun:test";
+import { makeUserMessage } from "./claude.ts";
 
-// Test the makeUserMessage function by importing the module
-// Since makeUserMessage is not exported, we test the behavior indirectly
-// by verifying the NDJSON format matches what Claude Code expects
-
-describe("NDJSON message format", () => {
-	test("user message has correct structure", () => {
-		const msg = JSON.parse(
-			JSON.stringify({
-				type: "user",
-				message: { role: "user", content: "hello" },
-				session_id: "default",
-				parent_tool_use_id: null,
-			}),
-		);
-
+describe("makeUserMessage", () => {
+	test("default session ID is 'default'", () => {
+		const msg = JSON.parse(makeUserMessage("hello"));
 		expect(msg.type).toBe("user");
-		expect(msg.message.role).toBe("user");
-		expect(msg.message.content).toBe("hello");
+		expect(msg.message).toEqual({ role: "user", content: "hello" });
 		expect(msg.session_id).toBe("default");
 		expect(msg.parent_tool_use_id).toBeNull();
 	});
 
-	test("user message with session ID", () => {
-		const msg = JSON.parse(
-			JSON.stringify({
-				type: "user",
-				message: { role: "user", content: "steer me" },
-				session_id: "abc-123",
-				parent_tool_use_id: null,
-			}),
-		);
-
+	test("uses provided session ID", () => {
+		const msg = JSON.parse(makeUserMessage("hi", "abc-123"));
 		expect(msg.session_id).toBe("abc-123");
 	});
 
-	test("message serializes as single line (NDJSON)", () => {
-		const serialized = JSON.stringify({
-			type: "user",
-			message: { role: "user", content: "line1\nline2\nline3" },
-			session_id: "default",
-			parent_tool_use_id: null,
-		});
-
-		// NDJSON: no newlines in the serialized output (content newlines are escaped)
-		expect(serialized.split("\n").length).toBe(1);
+	test("serializes as single NDJSON line (no embedded newlines)", () => {
+		const serialized = makeUserMessage("line1\nline2\nline3");
+		expect(serialized.includes("\n")).toBe(false);
 	});
-});
 
-describe("executor flags", () => {
-	test("persistent process uses correct flags", () => {
-		const expectedFlags = [
-			"-p",
-			"--input-format",
-			"stream-json",
-			"--output-format",
-			"stream-json",
-			"--verbose",
-			"--dangerously-skip-permissions",
-			"--replay-user-messages",
-		];
-
-		// Verify expected flags are present
-		for (const flag of expectedFlags) {
-			expect(expectedFlags).toContain(flag);
-		}
-
-		// --resume should NOT be in base flags (only added when resuming)
-		expect(expectedFlags).not.toContain("--resume");
+	test("handles special characters in content", () => {
+		const msg = JSON.parse(makeUserMessage('he said "hello" & <world>'));
+		expect(msg.message.content).toBe('he said "hello" & <world>');
 	});
 });

@@ -26,7 +26,7 @@ export interface BridgeHandle {
 		message: MessageData,
 		platform?: string,
 	): Promise<void>;
-	shutdown(): void;
+	shutdown(): Promise<void>;
 }
 
 /**
@@ -108,9 +108,9 @@ export async function createBridge(
 		}
 	}
 
-	function shutdown() {
+	async function shutdown() {
 		console.log("[bae] Shutting down...");
-		sessionManager.close();
+		await sessionManager.shutdown();
 	}
 
 	return { handleMessage, shutdown };
@@ -299,9 +299,9 @@ async function consumeAllTurns(
 				stopTyping();
 				await finalizeTurn();
 				resetTurnState();
-
-				// Start typing for the next turn (if a steered message is queued)
-				startTyping();
+				// Don't start typing here — it would show indefinitely between turns.
+				// Typing is started by the steering fast path in handleMessage,
+				// or by the init/text_delta handler when the next turn begins.
 			}
 
 			if (event.kind === "error") {
@@ -314,10 +314,17 @@ async function consumeAllTurns(
 				await thread.post(
 					"Something went wrong. Check the server logs for details.",
 				);
-				return;
+				// Don't return — process may still be alive and emit future turns.
+				// Reset state and continue consuming.
+				resetTurnState();
 			}
 		}
 	} finally {
 		stopTyping();
+		// Flush any in-progress stream on unexpected exit
+		if (isStreaming) {
+			endStream();
+			await Promise.all(postPromises);
+		}
 	}
 }

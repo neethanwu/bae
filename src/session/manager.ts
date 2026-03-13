@@ -4,16 +4,9 @@ import type { SessionStore } from "./store.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
-/**
- * Steering result — returned when a message is sent to an already-active agent.
- */
-export interface SteeringResult {
-	steered: true;
-}
-
 export type HandleMessageResult =
 	| { steered: false; events: AsyncIterable<AgentEvent> }
-	| SteeringResult;
+	| { steered: true };
 
 /**
  * SessionManager — persistent process with stdin steering.
@@ -179,10 +172,6 @@ export class SessionManager {
 		const kills = [...this.activeHandles.values()].map((h) => h.kill());
 		await Promise.allSettled(kills);
 		this.activeHandles.clear();
-		this.store.close();
-	}
-
-	close(): void {
 		this.store.close();
 	}
 }

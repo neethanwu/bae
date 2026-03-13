@@ -216,8 +216,8 @@ async function start() {
 	console.log(`[bae] Bae running on port ${port}`);
 
 	// Graceful shutdown
-	function shutdown() {
-		bridge.shutdown();
+	async function shutdown() {
+		await bridge.shutdown();
 		bot.stop();
 		try {
 			unlinkSync(PID_FILE);

@@ -10,7 +10,7 @@ const SIGKILL_DELAY_MS = 5_000;
 /**
  * Format a user message as NDJSON for `--input-format stream-json`.
  */
-function makeUserMessage(text: string, sessionId?: string): string {
+export function makeUserMessage(text: string, sessionId?: string): string {
 	return JSON.stringify({
 		type: "user",
 		message: { role: "user", content: text },
@@ -147,6 +147,19 @@ export class ClaudeCodeExecutor implements Executor {
 			}
 		}
 
+		async function terminate() {
+			killed = true;
+			clearTimeout(timeout);
+			proc.stdin?.end();
+			proc.kill("SIGTERM");
+			const killTimer = setTimeout(
+				() => proc.kill("SIGKILL"),
+				SIGKILL_DELAY_MS,
+			);
+			await proc.exited;
+			clearTimeout(killTimer);
+		}
+
 		return {
 			events: eventStream(),
 			sessionId,
@@ -160,31 +173,8 @@ export class ClaudeCodeExecutor implements Executor {
 				resetTimeout();
 			},
 
-			async interrupt() {
-				killed = true;
-				clearTimeout(timeout);
-				proc.stdin?.end();
-				proc.kill("SIGTERM");
-				const killTimer = setTimeout(
-					() => proc.kill("SIGKILL"),
-					SIGKILL_DELAY_MS,
-				);
-				await proc.exited;
-				clearTimeout(killTimer);
-			},
-
-			async kill() {
-				killed = true;
-				clearTimeout(timeout);
-				proc.stdin?.end();
-				proc.kill("SIGTERM");
-				const killTimer = setTimeout(
-					() => proc.kill("SIGKILL"),
-					SIGKILL_DELAY_MS,
-				);
-				await proc.exited;
-				clearTimeout(killTimer);
-			},
+			interrupt: terminate,
+			kill: terminate,
 		};
 	}
 }
