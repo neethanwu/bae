@@ -95,11 +95,20 @@ export async function createBridge(
 				return;
 			}
 
-			// New process — start long-lived event consumer.
-			// This runs for the entire process lifetime (across all turns).
-			// Steered messages' responses are picked up by this same consumer.
+			// Start typing immediately — gives user feedback while agent initializes (~5s)
+			await thread.startTyping().catch(() => {});
+
+			// Start long-lived event consumer in background.
+			// Must NOT await: the Chat SDK holds a thread lock while our handler
+			// runs. If we block here, subsequent messages (steering) get LOCK_FAILED.
+			// The consumer runs for the entire process lifetime and handles all turns.
 			console.log(`[bae] Spawned in ${Date.now() - startTime}ms`);
-			await consumeAllTurns(thread, result.events);
+			consumeAllTurns(thread, result.events).catch(async (err) => {
+				console.error("[bae] consumeAllTurns error:", err);
+				await thread
+					.post("Something went wrong. Check the server logs for details.")
+					.catch(() => {});
+			});
 		} catch (err) {
 			console.error("[bae] Error:", err);
 			await thread.post(
