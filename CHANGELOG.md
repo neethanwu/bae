@@ -29,3 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - Factory-based initialization (`createBot`, `createBridge`)
 - Auto-create workspace directory, default `~/baesment`
+
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/neethanwu/bae/releases/tag/v0.1.0
