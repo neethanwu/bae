@@ -1,5 +1,7 @@
 # Bae — Your AI, Always On
 
+[![npm version](https://img.shields.io/npm/v/bae-bridge)](https://www.npmjs.com/package/bae-bridge)
+
 > Turn any always-on machine into a personal AI agent server, accessible from your messaging apps.
 
 ## What Is Bae?
@@ -52,22 +54,65 @@ Your Phone                     Your Machine
 | Agent | Subprocess | Agent-agnostic; `--resume` for conversation continuity |
 | Storage | SQLite | Session persistence at `~/.bae/bae.db` via `bun:sqlite` |
 
+## Prerequisites
+
+- **Node.js 20+** — runtime for the bridge
+- **Claude Code** (or another supported agent) — installed and authenticated
+- **Telegram Bot Token** — create one via [@BotFather](https://t.me/BotFather)
+
 ## Install
 
 ```bash
 npm install -g bae-bridge
 ```
 
-Then run the setup wizard:
+## Setup
+
+Run the interactive wizard:
 
 ```bash
 bae init
-bae start
 ```
+
+This walks you through:
+- Telegram bot token
+- Workspace directory (default: `~/baesment`)
+- Allowed Telegram user IDs (for access control)
+
+Config is saved to `~/.bae/.env`.
+
+## Usage
+
+```bash
+# Start in foreground
+bae start
+
+# Start in background (daemon mode)
+bae start -d
+
+# Check if running
+bae status
+
+# View logs (daemon mode)
+bae logs
+
+# Stop the daemon
+bae stop
+```
+
+Once running, message your bot on Telegram. Send `/new` to start a fresh agent session.
+
+## Workspace
+
+Bae runs your agent inside the configured workspace directory (`~/baesment` by default). The agent has full access to that directory — file editing, bash execution, everything it can do locally.
 
 ## Status
 
 Phase 1 complete — Telegram bridge with session continuity, streaming responses, daemon mode, and CLI.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
