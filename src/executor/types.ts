@@ -11,6 +11,10 @@ export interface ExecuteResult {
 	events: AsyncIterable<AgentEvent>;
 	sessionId: Promise<string>;
 	kill(): Promise<void>;
+	/** Write a steering message to the running agent (persistent process only). */
+	send?(text: string): void;
+	/** Interrupt the current agent turn (persistent process only). */
+	interrupt?(): Promise<void>;
 }
 
 export interface Executor {

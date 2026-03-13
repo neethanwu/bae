@@ -64,7 +64,7 @@ export async function createBridge(
 		}
 
 		// Command routing
-		const cmdResponse = handleCommand(
+		const cmdResponse = await handleCommand(
 			text,
 			sessionManager,
 			platform,
@@ -80,28 +80,31 @@ export async function createBridge(
 			`[bae] <- ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
 		);
 
-		// Start typing indicator (repeat every 4s since Telegram expires it)
-		await thread.startTyping().catch(() => {});
-		const typingInterval = setInterval(() => {
-			thread.startTyping().catch(() => {});
-		}, TYPING_INTERVAL_MS);
-
 		try {
-			const events = await sessionManager.handleMessage(
+			const result = await sessionManager.handleMessage(
 				platform,
 				thread.id,
 				text,
 			);
-			console.log(`[bae] Spawned in ${Date.now() - startTime}ms`);
 
-			await streamResponse(thread, events, startTime, typingInterval);
+			// Steering fast path: message sent to active agent's stdin
+			if (result.steered) {
+				console.log(`[bae] Steered in ${Date.now() - startTime}ms`);
+				// Typing indicator — the long-lived consumer will handle the response
+				await thread.startTyping().catch(() => {});
+				return;
+			}
+
+			// New process — start long-lived event consumer.
+			// This runs for the entire process lifetime (across all turns).
+			// Steered messages' responses are picked up by this same consumer.
+			console.log(`[bae] Spawned in ${Date.now() - startTime}ms`);
+			await consumeAllTurns(thread, result.events);
 		} catch (err) {
 			console.error("[bae] Error:", err);
 			await thread.post(
 				"Something went wrong processing your message. Check the server logs for details.",
 			);
-		} finally {
-			clearInterval(typingInterval);
 		}
 	}
 
@@ -114,29 +117,33 @@ export async function createBridge(
 }
 
 /**
- * Consume agent events and stream them progressively to the IM thread.
+ * Long-lived event consumer — streams ALL turns from a persistent process.
  *
- * Uses a "push stream" pattern with a buffered queue: the event loop pushes
- * text chunks into a queue that an async generator consumes. When accumulated
- * text approaches the platform limit (~3500 chars), the generator ends
- * (finalizing the message) and a new one starts for the continuation.
+ * Runs for the entire process lifetime. Each turn (text_deltas → result)
+ * is streamed to the IM thread as one or more messages. When a steered
+ * message's response events arrive, this consumer picks them up automatically.
  */
-async function streamResponse(
+async function consumeAllTurns(
 	thread: Thread,
 	events: AsyncIterable<AgentEvent>,
-	startTime: number,
-	typingInterval: ReturnType<typeof setInterval>,
 ): Promise<void> {
+	let turnStartTime = Date.now();
+	let typingInterval: ReturnType<typeof setInterval> | undefined;
+
+	// Per-turn state
 	let hasText = false;
 	let logPreview = "";
 	let toolCount = 0;
 	let messageCount = 0;
 	let resultEvent: Extract<AgentEvent, { kind: "result" }> | null = null;
 
-	// Buffered push stream: queue ensures no chunks are dropped
+	// Buffered push stream state
 	let buffer: (string | null)[] = [];
 	let streamResolve: ((value: undefined) => void) | null = null;
 	let currentStreamLength = 0;
+	let postPromises: Promise<unknown>[] = [];
+	let activePostPromise: Promise<unknown> | null = null;
+	let isStreaming = false;
 
 	async function* createStream(): AsyncGenerator<string> {
 		while (true) {
@@ -164,10 +171,6 @@ async function streamResponse(
 		streamResolve = null;
 	}
 
-	// Collect post promises to await at the end (non-blocking splits)
-	const postPromises: Promise<unknown>[] = [];
-	let activePostPromise: Promise<unknown> | null = null;
-
 	function startNewStream() {
 		currentStreamLength = 0;
 		buffer = [];
@@ -178,107 +181,143 @@ async function streamResponse(
 		messageCount++;
 	}
 
-	let isStreaming = false;
-
-	for await (const event of events) {
-		if (event.kind === "init") {
-			console.log(
-				`[bae] Session: ${event.sessionId} (${Date.now() - startTime}ms)`,
-			);
-		}
-
-		if (event.kind === "text_delta") {
-			if (!hasText) {
-				console.log(`[bae] First text at ${Date.now() - startTime}ms`);
-			}
-			hasText = true;
-			if (logPreview.length < LOG_PREVIEW_LEN) {
-				logPreview += event.text.slice(0, LOG_PREVIEW_LEN - logPreview.length);
-			}
-
-			// Start streaming if not yet started
-			if (!isStreaming) {
-				// Stop typing indicator once text starts flowing
-				clearInterval(typingInterval);
-				startNewStream();
-				isStreaming = true;
-			}
-
-			// Check if this chunk would push us past the split threshold
-			if (currentStreamLength + event.text.length > SPLIT_THRESHOLD) {
-				// End current message, start a new one
-				endStream();
-				await activePostPromise;
-				startNewStream();
-			}
-
-			pushChunk(event.text);
-		}
-
-		if (event.kind === "tool_use") {
-			toolCount++;
-			const status = formatToolStatus(event.toolName, event.input);
-			console.log(`[bae] Tool: ${status}`);
-			// Re-enable typing during tool use gaps (stream pauses while agent works)
+	function startTyping() {
+		clearInterval(typingInterval);
+		thread.startTyping().catch(() => {});
+		typingInterval = setInterval(() => {
 			thread.startTyping().catch(() => {});
-		}
+		}, TYPING_INTERVAL_MS);
+	}
 
-		if (event.kind === "result") {
-			resultEvent = event;
-			if (!hasText && event.text) {
-				hasText = true;
-				logPreview = event.text.slice(0, LOG_PREVIEW_LEN);
-			}
-			break;
-		}
+	function stopTyping() {
+		clearInterval(typingInterval);
+		typingInterval = undefined;
+	}
 
-		if (event.kind === "error") {
-			console.error(`[bae] Agent error: ${event.message}`);
+	function resetTurnState() {
+		hasText = false;
+		logPreview = "";
+		toolCount = 0;
+		messageCount = 0;
+		resultEvent = null;
+		buffer = [];
+		streamResolve = null;
+		currentStreamLength = 0;
+		postPromises = [];
+		activePostPromise = null;
+		isStreaming = false;
+		turnStartTime = Date.now();
+	}
+
+	async function finalizeTurn() {
+		const elapsed = Date.now() - turnStartTime;
+		const footer = formatMetadata(elapsed, resultEvent?.costUsd);
+
+		if (!hasText) {
 			if (isStreaming) {
 				endStream();
 				await Promise.all(postPromises);
 			}
-			await thread.post(
-				"Something went wrong. Check the server logs for details.",
-			);
-			return;
-		}
-	}
-
-	// Finalize: append metadata footer and close the stream
-	const elapsed = Date.now() - startTime;
-	const footer = formatMetadata(elapsed, resultEvent?.costUsd);
-
-	if (!hasText) {
-		if (isStreaming) {
+			await thread.post("(no response from agent)");
+		} else if (!isStreaming) {
+			// Text came from result event (no text_deltas streamed)
+			const fullText = (resultEvent?.text ?? "") + footer;
+			for (const chunk of splitMessage(fullText)) {
+				await thread.post(chunk);
+				messageCount++;
+			}
+		} else if (currentStreamLength + footer.length > SPLIT_THRESHOLD) {
+			endStream();
+			await Promise.all(postPromises);
+			await thread.post(footer.trim());
+			messageCount++;
+		} else {
+			pushChunk(footer);
 			endStream();
 			await Promise.all(postPromises);
 		}
-		await thread.post("(no response from agent)");
-		return;
+
+		console.log(
+			`[bae] -> ${logPreview}${logPreview.length >= LOG_PREVIEW_LEN ? "..." : ""} (${(elapsed / 1000).toFixed(1)}s${toolCount > 0 ? `, ${toolCount} tools` : ""}${messageCount > 1 ? `, ${messageCount} messages` : ""})`,
+		);
 	}
 
-	// If text came from result event (no text_deltas streamed), post it directly
-	if (!isStreaming) {
-		const fullText = (resultEvent?.text ?? "") + footer;
-		// Use splitMessage for safety — result text could exceed platform limit
-		for (const chunk of splitMessage(fullText)) {
-			await thread.post(chunk);
-			messageCount++;
+	// Start typing for the first turn
+	startTyping();
+
+	try {
+		for await (const event of events) {
+			if (event.kind === "init") {
+				console.log(
+					`[bae] Session: ${event.sessionId} (${Date.now() - turnStartTime}ms)`,
+				);
+			}
+
+			if (event.kind === "text_delta") {
+				if (!hasText) {
+					console.log(`[bae] First text at ${Date.now() - turnStartTime}ms`);
+					// Stop typing once text starts flowing
+					stopTyping();
+				}
+				hasText = true;
+				if (logPreview.length < LOG_PREVIEW_LEN) {
+					logPreview += event.text.slice(
+						0,
+						LOG_PREVIEW_LEN - logPreview.length,
+					);
+				}
+
+				if (!isStreaming) {
+					startNewStream();
+					isStreaming = true;
+				}
+
+				if (currentStreamLength + event.text.length > SPLIT_THRESHOLD) {
+					endStream();
+					await activePostPromise;
+					startNewStream();
+				}
+
+				pushChunk(event.text);
+			}
+
+			if (event.kind === "tool_use") {
+				toolCount++;
+				const status = formatToolStatus(event.toolName, event.input);
+				console.log(`[bae] Tool: ${status}`);
+				// Re-enable typing during tool use gaps
+				startTyping();
+			}
+
+			if (event.kind === "result") {
+				resultEvent = event;
+				if (!hasText && event.text) {
+					hasText = true;
+					logPreview = event.text.slice(0, LOG_PREVIEW_LEN);
+				}
+
+				stopTyping();
+				await finalizeTurn();
+				resetTurnState();
+
+				// Start typing for the next turn (if a steered message is queued)
+				startTyping();
+			}
+
+			if (event.kind === "error") {
+				console.error(`[bae] Agent error: ${event.message}`);
+				stopTyping();
+				if (isStreaming) {
+					endStream();
+					await Promise.all(postPromises);
+				}
+				await thread.post(
+					"Something went wrong. Check the server logs for details.",
+				);
+				return;
+			}
 		}
-	} else if (currentStreamLength + footer.length > SPLIT_THRESHOLD) {
-		// Footer doesn't fit in current stream — post separately
-		endStream();
-		await Promise.all(postPromises);
-		await thread.post(footer.trim());
-		messageCount++;
-	} else {
-		pushChunk(footer);
-		endStream();
-		await Promise.all(postPromises);
+	} finally {
+		stopTyping();
 	}
-
-	console.log(
-		`[bae] -> ${logPreview}${logPreview.length >= LOG_PREVIEW_LEN ? "..." : ""} (${(elapsed / 1000).toFixed(1)}s${toolCount > 0 ? `, ${toolCount} tools` : ""}${messageCount > 1 ? `, ${messageCount} messages` : ""})`,
-	);
 }

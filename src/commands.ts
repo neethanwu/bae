@@ -6,22 +6,24 @@ import type { SessionManager } from "./session/manager.ts";
  *
  * Returns a response string if the command was handled, or null to pass through to the agent.
  */
-export function handleCommand(
+export async function handleCommand(
 	text: string,
 	sessionManager: SessionManager,
 	platform: string,
 	threadId: string,
-): string | null {
+): Promise<string | null> {
 	// Telegram convention: /start is sent when user first opens the bot
 	if (text === "/start") {
 		return "Bae is ready. Send me a message and I'll pass it to your agent.";
 	}
 
-	// /new clears the agent session — this must live at the Bae level
-	// because the agent can't clear its own session ID from Bae's store
+	// /new kills active process and clears the agent session
 	if (text === "/new") {
+		const wasActive = await sessionManager.interruptSession(platform, threadId);
 		sessionManager.clearSession(platform, threadId);
-		return "Session cleared. Next message starts a fresh conversation.";
+		return wasActive
+			? "Agent interrupted. Session cleared — next message starts fresh."
+			: "Session cleared. Next message starts a fresh conversation.";
 	}
 
 	// Everything else goes to the agent
