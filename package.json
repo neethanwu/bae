@@ -2,6 +2,21 @@
   "name": "bae-bridge",
   "version": "0.1.0",
   "description": "Bridge your messaging apps to CLI coding agents",
+  "author": "Neethan Wu <neethan>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neethanwu/bae.git"
+  },
+  "homepage": "https://github.com/neethanwu/bae",
+  "bugs": "https://github.com/neethanwu/bae/issues",
+  "keywords": [
+    "telegram",
+    "claude-code",
+    "bridge",
+    "cli",
+    "ai-agent"
+  ],
   "module": "src/index.ts",
   "type": "module",
   "bin": {
@@ -16,6 +31,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
