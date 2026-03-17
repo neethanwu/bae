@@ -14,7 +14,7 @@ export async function handleCommand(
 ): Promise<string | null> {
 	// Telegram convention: /start is sent when user first opens the bot
 	if (text === "/start") {
-		return "Bae is ready. Send me a message and I'll pass it to your agent.";
+		return "Hey, this is Bae! I'm here to connect you to your beloved agents. Send any message to start.";
 	}
 
 	// /new kills active process and clears the agent session
@@ -22,8 +22,8 @@ export async function handleCommand(
 		const wasActive = await sessionManager.interruptSession(platform, threadId);
 		sessionManager.clearSession(platform, threadId);
 		return wasActive
-			? "Agent interrupted. Session cleared — next message starts fresh."
-			: "Session cleared. Next message starts a fresh conversation.";
+			? "Got it, starting fresh! On 3, 2, I'm ready."
+			: "Fresh start! What's on your mind?";
 	}
 
 	// Everything else goes to the agent

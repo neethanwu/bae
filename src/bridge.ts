@@ -1,11 +1,7 @@
 import type { MessageData, Thread } from "chat";
 import { handleCommand } from "./commands.ts";
 import { ClaudeCodeExecutor } from "./executor/claude.ts";
-import {
-	formatMetadata,
-	formatToolStatus,
-	splitMessage,
-} from "./formatter/telegram.ts";
+import { formatToolStatus } from "./formatter/telegram.ts";
 import { SessionManager } from "./session/manager.ts";
 import { SessionStore } from "./session/store.ts";
 import type { AgentEvent } from "./stream/types.ts";
@@ -91,12 +87,12 @@ export async function createBridge(
 			if (result.steered) {
 				console.log(`[bae] Steered in ${Date.now() - startTime}ms`);
 				// Typing indicator — the long-lived consumer will handle the response
-				await thread.startTyping().catch(() => {});
+				thread.startTyping().catch(() => {});
 				return;
 			}
 
 			// Start typing immediately — gives user feedback while agent initializes (~5s)
-			await thread.startTyping().catch(() => {});
+			thread.startTyping().catch(() => {});
 
 			// Start long-lived event consumer in background.
 			// Must NOT await: the Chat SDK holds a thread lock while our handler
@@ -106,13 +102,15 @@ export async function createBridge(
 			consumeAllTurns(thread, result.events).catch(async (err) => {
 				console.error("[bae] consumeAllTurns error:", err);
 				await thread
-					.post("Something went wrong. Check the server logs for details.")
+					.post(
+						"Oops, I hit a snag and lost my train of thought. Try sending your message again!",
+					)
 					.catch(() => {});
 			});
 		} catch (err) {
 			console.error("[bae] Error:", err);
 			await thread.post(
-				"Something went wrong processing your message. Check the server logs for details.",
+				"I couldn't process that one. Try rephrasing or send /new to start fresh.",
 			);
 		}
 	}
@@ -126,11 +124,15 @@ export async function createBridge(
 }
 
 /**
- * Long-lived event consumer — streams ALL turns from a persistent process.
+ * Long-lived event consumer — handles ALL turns from a persistent process.
  *
- * Runs for the entire process lifetime. Each turn (text_deltas → result)
- * is streamed to the IM thread as one or more messages. When a steered
- * message's response events arrive, this consumer picks them up automatically.
+ * Streams text to Telegram in real-time via the Chat SDK's fallbackStream
+ * (post placeholder → edit every 500ms with accumulated text). When the
+ * message approaches Telegram's 4096 char limit, ends the current stream
+ * and starts a new message for the overflow.
+ *
+ * When a steered message's response events arrive, this consumer picks
+ * them up automatically.
  */
 async function consumeAllTurns(
 	thread: Thread,
@@ -146,12 +148,11 @@ async function consumeAllTurns(
 	let messageCount = 0;
 	let resultEvent: Extract<AgentEvent, { kind: "result" }> | null = null;
 
-	// Buffered push stream state
+	// Streaming state — buffered push stream for thread.post(AsyncIterable)
 	let buffer: (string | null)[] = [];
 	let streamResolve: ((value: undefined) => void) | null = null;
 	let currentStreamLength = 0;
-	let postPromises: Promise<unknown>[] = [];
-	let activePostPromise: Promise<unknown> | null = null;
+	let postPromise: Promise<unknown> | null = null;
 	let isStreaming = false;
 
 	async function* createStream(): AsyncGenerator<string> {
@@ -185,8 +186,7 @@ async function consumeAllTurns(
 		buffer = [];
 		streamResolve = null;
 		const stream = createStream();
-		activePostPromise = thread.post(stream);
-		postPromises.push(activePostPromise);
+		postPromise = thread.post(stream);
 		messageCount++;
 	}
 
@@ -212,60 +212,46 @@ async function consumeAllTurns(
 		buffer = [];
 		streamResolve = null;
 		currentStreamLength = 0;
-		postPromises = [];
-		activePostPromise = null;
+		postPromise = null;
 		isStreaming = false;
 		turnStartTime = Date.now();
 	}
 
 	async function finalizeTurn() {
 		const elapsed = Date.now() - turnStartTime;
-		const footer = formatMetadata(elapsed, resultEvent?.costUsd);
 
 		if (!hasText) {
 			if (isStreaming) {
 				endStream();
-				await Promise.all(postPromises);
+				await postPromise;
 			}
 			await thread.post("(no response from agent)");
-		} else if (!isStreaming) {
-			// Text came from result event (no text_deltas streamed)
-			const fullText = (resultEvent?.text ?? "") + footer;
-			for (const chunk of splitMessage(fullText)) {
-				await thread.post(chunk);
-				messageCount++;
-			}
-		} else if (currentStreamLength + footer.length > SPLIT_THRESHOLD) {
+		} else if (isStreaming) {
+			// End the active stream — fallbackStream does the final edit
 			endStream();
-			await Promise.all(postPromises);
-			await thread.post(footer.trim());
-			messageCount++;
-		} else {
-			pushChunk(footer);
-			endStream();
-			await Promise.all(postPromises);
+			await postPromise;
 		}
 
+		const costStr = resultEvent?.costUsd
+			? `, $${resultEvent.costUsd.toFixed(4)}`
+			: "";
 		console.log(
-			`[bae] -> ${logPreview}${logPreview.length >= LOG_PREVIEW_LEN ? "..." : ""} (${(elapsed / 1000).toFixed(1)}s${toolCount > 0 ? `, ${toolCount} tools` : ""}${messageCount > 1 ? `, ${messageCount} messages` : ""})`,
+			`[bae] -> ${logPreview}${logPreview.length >= LOG_PREVIEW_LEN ? "..." : ""} (${(elapsed / 1000).toFixed(1)}s${costStr}${toolCount > 0 ? `, ${toolCount} tools` : ""}${messageCount > 1 ? `, ${messageCount} messages` : ""})`,
 		);
 	}
 
-	// Start typing for the first turn
+	// Show typing while agent initializes
 	startTyping();
 
 	try {
 		for await (const event of events) {
 			if (event.kind === "init") {
-				console.log(
-					`[bae] Session: ${event.sessionId} (${Date.now() - turnStartTime}ms)`,
-				);
+				console.log(`[bae] Session: ${event.sessionId}`);
 			}
 
 			if (event.kind === "text_delta") {
 				if (!hasText) {
-					console.log(`[bae] First text at ${Date.now() - turnStartTime}ms`);
-					// Stop typing once text starts flowing
+					turnStartTime = Date.now();
 					stopTyping();
 				}
 				hasText = true;
@@ -276,14 +262,17 @@ async function consumeAllTurns(
 					);
 				}
 
+				// Start streaming on first text chunk
 				if (!isStreaming) {
 					startNewStream();
 					isStreaming = true;
 				}
 
+				// Would this chunk push us over the Telegram limit?
 				if (currentStreamLength + event.text.length > SPLIT_THRESHOLD) {
+					// End current message, start a new one
 					endStream();
-					await activePostPromise;
+					await postPromise;
 					startNewStream();
 				}
 
@@ -294,7 +283,13 @@ async function consumeAllTurns(
 				toolCount++;
 				const status = formatToolStatus(event.toolName, event.input);
 				console.log(`[bae] Tool: ${status}`);
-				// Re-enable typing during tool use gaps
+
+				// End any active stream before tool execution
+				if (isStreaming) {
+					endStream();
+					await postPromise;
+					isStreaming = false;
+				}
 				startTyping();
 			}
 
@@ -308,9 +303,8 @@ async function consumeAllTurns(
 				stopTyping();
 				await finalizeTurn();
 				resetTurnState();
-				// Don't start typing here — it would show indefinitely between turns.
-				// Typing is started by the steering fast path in handleMessage,
-				// or by the init/text_delta handler when the next turn begins.
+				// Ready for next turn (steered messages)
+				startTyping();
 			}
 
 			if (event.kind === "error") {
@@ -318,22 +312,20 @@ async function consumeAllTurns(
 				stopTyping();
 				if (isStreaming) {
 					endStream();
-					await Promise.all(postPromises);
+					await postPromise;
 				}
 				await thread.post(
-					"Something went wrong. Check the server logs for details.",
+					"Something went wrong on my end. Send /new to start a fresh session.",
 				);
-				// Don't return — process may still be alive and emit future turns.
-				// Reset state and continue consuming.
 				resetTurnState();
+				startTyping();
 			}
 		}
 	} finally {
 		stopTyping();
-		// Flush any in-progress stream on unexpected exit
 		if (isStreaming) {
 			endStream();
-			await Promise.all(postPromises);
+			await postPromise;
 		}
 	}
 }

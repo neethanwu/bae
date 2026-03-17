@@ -51,7 +51,6 @@ export class SessionManager {
 		if (!handle) return;
 		console.log(`[session] Idle timeout reached for ${key}, killing process`);
 		await handle.kill();
-		// Cleanup happens in trackEvents finally block
 	}
 
 	async handleMessage(
@@ -92,7 +91,6 @@ export class SessionManager {
 			};
 		}
 
-		// No active handle → spawn persistent process
 		const session = this.store.getOrCreate(platform, threadId, this.defaultCwd);
 
 		const result = this.executor.execute({

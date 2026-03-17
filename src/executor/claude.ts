@@ -37,6 +37,7 @@ export class ClaudeCodeExecutor implements Executor {
 			"--output-format",
 			"stream-json",
 			"--verbose",
+			"--include-partial-messages",
 			"--dangerously-skip-permissions",
 			"--replay-user-messages",
 		];
