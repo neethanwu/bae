@@ -100,6 +100,28 @@ describe("markdownToTelegramHtml", () => {
 		expect(result).toContain("<pre><code>b</code></pre>");
 	});
 
+	test("unclosed code fence (streaming)", () => {
+		const input = "Here's the table:\n\n```\n| Col1 | Col2 |\n| a | b |";
+		const result = markdownToTelegramHtml(input);
+		expect(result).toContain("<pre><code>");
+		expect(result).toContain("| Col1 | Col2 |");
+		expect(result).not.toContain("```");
+	});
+
+	test("unclosed code fence with language tag", () => {
+		const input = "```python\ndef hello():\n  pass";
+		const result = markdownToTelegramHtml(input);
+		expect(result).toContain('class="language-python"');
+		expect(result).toContain("def hello():");
+	});
+
+	test("closed fence followed by unclosed fence", () => {
+		const input = "```\nfirst\n```\n\ntext\n\n```\n| still | streaming |";
+		const result = markdownToTelegramHtml(input);
+		expect(result).toContain("<pre><code>first</code></pre>");
+		expect(result).toContain("| still | streaming |");
+	});
+
 	test("mixed formatting in a realistic LLM response", () => {
 		const input = [
 			"Here's the fix:",

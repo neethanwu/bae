@@ -27,6 +27,19 @@ export function markdownToTelegramHtml(text: string): string {
 		},
 	);
 
+	// Handle unclosed code fence (common during streaming — opening ``` arrived
+	// but closing ``` hasn't yet). Treat everything after it as code.
+	const unclosedMatch = result.match(/```(\w*)\n([\s\S]*)$/);
+	if (unclosedMatch?.[2] != null) {
+		const [fullMatch, lang = "", code] = unclosedMatch;
+		const escaped = escapeHtml(code.replace(/\n$/, ""));
+		const langAttr = lang ? ` class="language-${escapeHtml(lang)}"` : "";
+		codeBlocks.push(`<pre><code${langAttr}>${escaped}</code></pre>`);
+		result =
+			result.slice(0, result.length - fullMatch.length) +
+			`${CODE_MARKER}${codeBlocks.length - 1}${MARKER_END}`;
+	}
+
 	// Extract inline code before escaping (content inside backticks is literal)
 	const inlineCodes: string[] = [];
 	result = result.replace(/`([^`\n]+)`/g, (_match, code: string) => {

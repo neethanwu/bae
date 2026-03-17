@@ -1,5 +1,11 @@
 import type { MessageData, Thread } from "chat";
-import { handleCommand } from "./commands.ts";
+import {
+	ERROR_AGENT_MESSAGES,
+	ERROR_SPAWN_MESSAGES,
+	ERROR_STREAM_MESSAGES,
+	handleCommand,
+	pick,
+} from "./commands.ts";
 import { ClaudeCodeExecutor } from "./executor/claude.ts";
 import { formatToolStatus } from "./formatter/telegram.ts";
 import { SessionManager } from "./session/manager.ts";
@@ -7,7 +13,8 @@ import { SessionStore } from "./session/store.ts";
 import type { AgentEvent } from "./stream/types.ts";
 
 const TYPING_INTERVAL_MS = 4_000;
-const SPLIT_THRESHOLD = 3500; // Start new message before hitting Telegram's 4096 limit
+const SPLIT_SOFT = 2000; // Start looking for \n\n paragraph breaks
+const SPLIT_HARD = 2500; // Force split — accounts for ~60% SDK expansion (table wrapping, remend healing)
 const LOG_PREVIEW_LEN = 80;
 
 export interface BridgeConfig {
@@ -101,17 +108,11 @@ export async function createBridge(
 			console.log(`[bae] Spawned in ${Date.now() - startTime}ms`);
 			consumeAllTurns(thread, result.events).catch(async (err) => {
 				console.error("[bae] consumeAllTurns error:", err);
-				await thread
-					.post(
-						"Oops, I hit a snag and lost my train of thought. Try sending your message again!",
-					)
-					.catch(() => {});
+				await thread.post(pick(ERROR_STREAM_MESSAGES)).catch(() => {});
 			});
 		} catch (err) {
 			console.error("[bae] Error:", err);
-			await thread.post(
-				"I couldn't process that one. Try rephrasing or send /new to start fresh.",
-			);
+			await thread.post(pick(ERROR_SPAWN_MESSAGES));
 		}
 	}
 
@@ -154,6 +155,7 @@ async function consumeAllTurns(
 	let currentStreamLength = 0;
 	let postPromise: Promise<unknown> | null = null;
 	let isStreaming = false;
+	let streamText = ""; // accumulated text for reliable ``` fence tracking
 
 	async function* createStream(): AsyncGenerator<string> {
 		while (true) {
@@ -169,10 +171,33 @@ async function consumeAllTurns(
 	}
 
 	function pushChunk(text: string) {
+		streamText += text;
 		currentStreamLength += text.length;
 		buffer.push(text);
 		streamResolve?.(undefined);
 		streamResolve = null;
+	}
+
+	function isInCodeFence(): boolean {
+		const count = (streamText.match(/```/g) || []).length;
+		return count % 2 === 1;
+	}
+
+	/** Close an open code fence before splitting, reopen after. */
+	function splitStream() {
+		const wasInFence = isInCodeFence();
+		if (wasInFence) {
+			pushChunk("\n```");
+		}
+		endStream();
+		return wasInFence;
+	}
+
+	function startNewStreamWithFence(wasInFence: boolean) {
+		startNewStream();
+		if (wasInFence) {
+			pushChunk("```\n");
+		}
 	}
 
 	function endStream() {
@@ -183,6 +208,7 @@ async function consumeAllTurns(
 
 	function startNewStream() {
 		currentStreamLength = 0;
+		streamText = "";
 		buffer = [];
 		streamResolve = null;
 		const stream = createStream();
@@ -213,6 +239,7 @@ async function consumeAllTurns(
 		streamResolve = null;
 		currentStreamLength = 0;
 		postPromise = null;
+		streamText = "";
 		isStreaming = false;
 		turnStartTime = Date.now();
 	}
@@ -268,15 +295,62 @@ async function consumeAllTurns(
 					isStreaming = true;
 				}
 
-				// Would this chunk push us over the Telegram limit?
-				if (currentStreamLength + event.text.length > SPLIT_THRESHOLD) {
-					// End current message, start a new one
-					endStream();
-					await postPromise;
-					startNewStream();
-				}
+				// Smart split: prefer paragraph breaks to avoid cutting tables/code blocks.
+				// Soft zone (SPLIT_SOFT+): split at \n\n if the chunk has one.
+				// Hard zone (SPLIT_HARD+): split at any \n, or force-cut if none.
+				const wouldReachHard =
+					currentStreamLength + event.text.length >= SPLIT_HARD;
 
-				pushChunk(event.text);
+				if (currentStreamLength >= SPLIT_HARD || wouldReachHard) {
+					// At or approaching hard limit — find best split point in chunk
+					const remaining = Math.max(0, SPLIT_HARD - currentStreamLength);
+					const searchArea = event.text.slice(0, remaining);
+					const breakIdx = searchArea.lastIndexOf("\n");
+
+					if (breakIdx >= 0) {
+						pushChunk(event.text.slice(0, breakIdx));
+						const wasInFence = splitStream();
+						console.log(
+							`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+						);
+						await postPromise;
+						startNewStreamWithFence(wasInFence);
+						pushChunk(event.text.slice(breakIdx + 1));
+					} else if (remaining > 0) {
+						pushChunk(event.text.slice(0, remaining));
+						const wasInFence = splitStream();
+						console.log(
+							`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+						);
+						await postPromise;
+						startNewStreamWithFence(wasInFence);
+						pushChunk(event.text.slice(remaining));
+					} else {
+						const wasInFence = splitStream();
+						console.log(
+							`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+						);
+						await postPromise;
+						startNewStreamWithFence(wasInFence);
+						pushChunk(event.text);
+					}
+				} else if (
+					currentStreamLength > SPLIT_SOFT &&
+					event.text.includes("\n\n")
+				) {
+					// Soft zone — split at last paragraph break
+					const breakIdx = event.text.lastIndexOf("\n\n");
+					pushChunk(event.text.slice(0, breakIdx));
+					const wasInFence = splitStream();
+					console.log(
+						`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+					);
+					await postPromise;
+					startNewStreamWithFence(wasInFence);
+					pushChunk(event.text.slice(breakIdx + 2));
+				} else {
+					pushChunk(event.text);
+				}
 			}
 
 			if (event.kind === "tool_use") {
@@ -314,9 +388,7 @@ async function consumeAllTurns(
 					endStream();
 					await postPromise;
 				}
-				await thread.post(
-					"Something went wrong on my end. Send /new to start a fresh session.",
-				);
+				await thread.post(pick(ERROR_AGENT_MESSAGES));
 				resetTurnState();
 				startTyping();
 			}

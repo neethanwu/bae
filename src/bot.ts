@@ -48,7 +48,13 @@ export function createBot(
 			// Guard: skip empty messages — fallbackStream may produce these during markdown healing
 			if (!params.text.trim()) {
 				console.warn(`[bae:tg] ${method} skipped — empty text after trim`);
-				return { ok: true, result: {} };
+				return {
+					ok: true,
+					result: {
+						chat: { id: params.chat_id },
+						message_id: params.message_id,
+					},
+				};
 			}
 			const originalText = params.text;
 			const htmlText = markdownToTelegramHtml(originalText);
@@ -61,6 +67,18 @@ export function createBot(
 				return await origFetch(method, params);
 			} catch (err: unknown) {
 				const errMsg = err instanceof Error ? err.message : String(err);
+
+				// "message is not modified" is harmless — Telegram just saw no diff
+				if (errMsg.includes("message is not modified")) {
+					return {
+						ok: true,
+						result: {
+							chat: { id: params.chat_id },
+							message_id: params.message_id,
+						},
+					};
+				}
+
 				console.error(`[bae:tg] ${method} HTML failed: ${errMsg}`);
 				console.error(
 					`[bae:tg] HTML payload (first 200): ${htmlText.slice(0, 200)}`,
@@ -101,7 +119,7 @@ export function createBot(
 				err.message.includes("Message text cannot be empty")
 			) {
 				console.warn("[bae:tg] editMessage skipped — empty text");
-				return { ok: true, result: {} };
+				return undefined;
 			}
 			throw err;
 		}
