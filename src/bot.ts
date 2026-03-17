@@ -2,27 +2,45 @@ import { createTelegramAdapter } from "@chat-adapter/telegram";
 import type { MessageData, Thread } from "chat";
 import { Chat } from "chat";
 import { markdownToTelegramHtml } from "./formatter/html.ts";
+import type { Platform } from "./session/types.ts";
 import { createRetryState } from "./state.ts";
 
 export interface BotHandle {
 	start(): Promise<void>;
-	stop(): void;
+	stop(): Promise<void>;
+}
+
+export interface CreateBotOptions {
+	platform: Platform;
+	credentials: Record<string, string>;
+	channelId: string;
+	onMessage: (thread: Thread, message: MessageData) => Promise<void>;
 }
 
 /**
- * Create and configure the Chat SDK bot.
+ * Create and configure a Chat SDK bot for a single channel.
  *
- * Sets TELEGRAM_BOT_TOKEN in process.env before adapter init
- * (Chat SDK reads it from env internally).
+ * Each channel gets its own Chat instance with its own adapter and state,
+ * preventing dedup key collisions when multiple bots are in the same group.
  */
-export function createBot(
-	botToken: string,
+export function createBot(options: CreateBotOptions): BotHandle {
+	const { platform, credentials, onMessage } = options;
+
+	if (platform === "telegram") {
+		return createTelegramBot(credentials, onMessage);
+	}
+
+	throw new Error(`Unsupported platform: ${platform}`);
+}
+
+function createTelegramBot(
+	credentials: Record<string, string>,
 	onMessage: (thread: Thread, message: MessageData) => Promise<void>,
 ): BotHandle {
-	process.env.TELEGRAM_BOT_TOKEN = botToken;
-
+	// Pass token DIRECTLY — no process.env mutation
 	const telegramAdapter = createTelegramAdapter({
-		mode: "auto", // polling locally, webhook in production (serverless)
+		botToken: credentials.TELEGRAM_BOT_TOKEN,
+		mode: "auto",
 	});
 
 	// Override telegramFetch to add parse_mode: "HTML" to all outgoing messages.
@@ -47,7 +65,6 @@ export function createBot(
 			(method === "sendMessage" || method === "editMessageText") &&
 			params.text
 		) {
-			// Guard: skip empty messages — fallbackStream may produce these during markdown healing
 			if (!params.text.trim()) {
 				console.warn(`[bae:tg] ${method} skipped — empty text after trim`);
 				return {
@@ -70,7 +87,6 @@ export function createBot(
 			} catch (err: unknown) {
 				const errMsg = err instanceof Error ? err.message : String(err);
 
-				// "message is not modified" is harmless — Telegram just saw no diff
 				if (errMsg.includes("message is not modified")) {
 					return {
 						ok: true,
@@ -85,7 +101,6 @@ export function createBot(
 				console.error(
 					`[bae:tg] HTML payload (first 200): ${htmlText.slice(0, 200)}`,
 				);
-				// Fallback: if Telegram rejects HTML, retry as plain text
 				if (err instanceof Error && err.message?.includes("400")) {
 					params.text = originalText;
 					delete params.parse_mode;
@@ -108,9 +123,6 @@ export function createBot(
 		return origFetch(method, params, request);
 	};
 
-	// Guard: swallow empty-text validation errors from the SDK.
-	// thread.post(string) may still trigger fallbackStream internally,
-	// and empty markdown can surface during edge cases.
 	const origEditMessage = adapter.editMessage.bind(adapter);
 	adapter.editMessage = async (...args: unknown[]) => {
 		try {
@@ -127,16 +139,17 @@ export function createBot(
 		}
 	};
 
+	// Separate state adapter per instance — prevents dedup key collisions
+	// when multiple bots are in the same Telegram group
 	const bot = new Chat({
 		userName: "bae",
 		adapters: {
 			telegram: telegramAdapter,
 		},
 		state: createRetryState(),
-		fallbackStreamingPlaceholderText: "...", // Replaced within ~500ms by first streamed content
+		fallbackStreamingPlaceholderText: "...",
 	});
 
-	// Chat SDK v4.20+: DMs route to onDirectMessage; onNewMessage covers non-DM fallback.
 	bot.onDirectMessage(async (thread, message) => {
 		await thread.subscribe();
 		await onMessage(thread, message);
@@ -153,8 +166,10 @@ export function createBot(
 
 	return {
 		start: () => bot.initialize(),
-		stop: () => {
-			// Chat SDK doesn't expose a stop method — process exit handles cleanup
+		stop: async () => {
+			// Chat.shutdown() does NOT stop polling — must call adapter method directly
+			await telegramAdapter.stopPolling();
+			await bot.shutdown();
 		},
 	};
 }

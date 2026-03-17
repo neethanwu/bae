@@ -6,10 +6,9 @@ import {
 	handleCommand,
 	pick,
 } from "./commands.ts";
-import { ClaudeCodeExecutor } from "./executor/claude.ts";
 import { formatToolStatus } from "./formatter/telegram.ts";
 import { SessionManager } from "./session/manager.ts";
-import { SessionStore } from "./session/store.ts";
+import type { Store } from "./session/store.ts";
 import type { AgentEvent } from "./stream/types.ts";
 
 const TYPING_INTERVAL_MS = 4_000;
@@ -18,16 +17,14 @@ const SPLIT_HARD = 2500; // Force split — accounts for ~60% SDK expansion (tab
 const LOG_PREVIEW_LEN = 80;
 
 export interface BridgeConfig {
-	cwd: string;
-	allowedUsers: string[];
-	dbPath?: string;
+	store: Store;
 }
 
 export interface BridgeHandle {
 	handleMessage(
 		thread: Thread,
 		message: MessageData,
-		platform?: string,
+		channelId: string,
 	): Promise<void>;
 	shutdown(): Promise<void>;
 }
@@ -38,24 +35,23 @@ export interface BridgeHandle {
 export async function createBridge(
 	config: BridgeConfig,
 ): Promise<BridgeHandle> {
-	const store = new SessionStore(config.dbPath);
-	await store.waitReady();
-	const executor = new ClaudeCodeExecutor();
-	const sessionManager = new SessionManager(store, executor, config.cwd);
-
-	console.log(`[bae] Workspace: ${config.cwd}`);
-	console.log(`[bae] Allowed users: ${config.allowedUsers.join(", ")}`);
+	const { store } = config;
+	const sessionManager = new SessionManager(store);
 
 	async function handleMessage(
 		thread: Thread,
 		message: MessageData,
-		platform = "telegram",
+		channelId: string,
 	): Promise<void> {
+		// Per-channel auth check
+		const channel = store.getChannel(channelId);
+		if (!channel) {
+			console.error(`[bae] Unknown channel: ${channelId}`);
+			return;
+		}
+
 		const userId = message.author?.userId ?? "";
-		if (
-			config.allowedUsers.length > 0 &&
-			!config.allowedUsers.includes(userId)
-		) {
+		if (!channel.allowedUsers.includes(userId)) {
 			console.log(`[bae] Rejected message from unauthorized user: ${userId}`);
 			return;
 		}
@@ -66,12 +62,14 @@ export async function createBridge(
 			return;
 		}
 
+		const conversationId = String(thread.id);
+
 		// Command routing
 		const cmdResponse = await handleCommand(
 			text,
 			sessionManager,
-			platform,
-			thread.id,
+			channelId,
+			conversationId,
 		);
 		if (cmdResponse !== null) {
 			await thread.post(cmdResponse);
@@ -85,8 +83,8 @@ export async function createBridge(
 
 		try {
 			const result = await sessionManager.handleMessage(
-				platform,
-				thread.id,
+				channelId,
+				conversationId,
 				text,
 			);
 

@@ -145,8 +145,8 @@ export const ERROR_AGENT_MESSAGES = [
 export async function handleCommand(
 	text: string,
 	sessionManager: SessionManager,
-	platform: string,
-	threadId: string,
+	channelId: string,
+	conversationId: string,
 ): Promise<string | null> {
 	// Telegram convention: /start is sent when user first opens the bot
 	if (text === "/start") {
@@ -155,8 +155,11 @@ export async function handleCommand(
 
 	// /new kills active process and clears the agent session
 	if (text === "/new") {
-		const wasActive = await sessionManager.interruptSession(platform, threadId);
-		sessionManager.clearSession(platform, threadId);
+		const wasActive = await sessionManager.interruptSession(
+			channelId,
+			conversationId,
+		);
+		sessionManager.clearSession(channelId, conversationId);
 		return wasActive ? pick(NEW_ACTIVE_MESSAGES) : pick(NEW_IDLE_MESSAGES);
 	}
 
