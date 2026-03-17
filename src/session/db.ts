@@ -15,6 +15,7 @@ export interface DB {
 	exec(sql: string): void;
 	pragma(directive: string): void;
 	queryGet<T>(sql: string, ...params: unknown[]): T | undefined;
+	queryAll<T>(sql: string, ...params: unknown[]): T[];
 	run(sql: string, ...params: unknown[]): void;
 	close(): void;
 }
@@ -38,6 +39,8 @@ async function openBunDatabase(path: string): Promise<DB> {
 		pragma: (directive) => db.exec(`PRAGMA ${directive}`),
 		queryGet: <T>(sql: string, ...params: unknown[]) =>
 			db.query(sql).get(...params) as T | undefined,
+		queryAll: <T>(sql: string, ...params: unknown[]) =>
+			db.query(sql).all(...params) as T[],
 		run: (sql, ...params) => db.run(sql, ...params),
 		close: () => db.close(),
 	};
@@ -52,6 +55,8 @@ async function openNodeDatabase(path: string): Promise<DB> {
 		pragma: (directive) => db.pragma(directive),
 		queryGet: <T>(sql: string, ...params: unknown[]) =>
 			db.prepare(sql).get(...params) as T | undefined,
+		queryAll: <T>(sql: string, ...params: unknown[]) =>
+			db.prepare(sql).all(...params) as T[],
 		run: (sql, ...params) => db.prepare(sql).run(...params),
 		close: () => db.close(),
 	};
