@@ -5,12 +5,12 @@
     "": {
       "name": "bae",
       "dependencies": {
-        "@chat-adapter/state-memory": "^4.17.0",
-        "@chat-adapter/telegram": "^4.17.0",
+        "@chat-adapter/state-memory": "~4.20.2",
+        "@chat-adapter/telegram": "~4.20.2",
         "@clack/prompts": "^1.1.0",
         "@hono/node-server": "^1.19.11",
         "better-sqlite3": "^12.6.2",
-        "chat": "^4.17.0",
+        "chat": "~4.20.2",
         "hono": "^4.12.5",
       },
       "devDependencies": {
@@ -43,11 +43,11 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.4.6", "", { "os": "win32", "cpu": "x64" }, "sha512-7++XhnsPlr1HDbor5amovPjOH6vsrFOCdp93iKXhFn6bcMUI6soodj3WWKfgEO6JosKU1W5n3uky3WW9RlRjTg=="],
 
-    "@chat-adapter/shared": ["@chat-adapter/shared@4.19.0", "", { "dependencies": { "chat": "4.19.0" } }, "sha512-77AUsz8XiY9uS1iBISOsJzjUhcV6v/RbJr30uQearaGlkddEy9bb5B66Knc0O+7TA8uuGEMNPrMqglzG7lqwOQ=="],
+    "@chat-adapter/shared": ["@chat-adapter/shared@4.20.2", "", { "dependencies": { "chat": "4.20.2" } }, "sha512-cTtTVHgH/2l9/+ILSExCr/kZwzz2Y8tp7WKRweMRWFOBcXZ0U5ZtviZCCDWBqU/YOBilQUgON8vIP9eo1w0m5w=="],
 
-    "@chat-adapter/state-memory": ["@chat-adapter/state-memory@4.17.0", "", { "dependencies": { "chat": "4.17.0" } }, "sha512-7LewkFY6gQVEXxAycaWUXax9Pt7Prmn2mBdoIBbTEAzV5bSQBaXqKyrd6VWCd9gEyxNlBUainyQul4iGNPw1sQ=="],
+    "@chat-adapter/state-memory": ["@chat-adapter/state-memory@4.20.2", "", { "dependencies": { "chat": "4.20.2" } }, "sha512-4388hp9Wsp87jMgSpkPfN4abflgIgQn5M3MLSDYdU4f20PNKrUkzhb8elkyPmYliF4MInZUau+llc26b7hZsng=="],
 
-    "@chat-adapter/telegram": ["@chat-adapter/telegram@4.19.0", "", { "dependencies": { "@chat-adapter/shared": "4.19.0", "chat": "4.19.0" } }, "sha512-hUCb6kbRjwO/xZcSiJ9c2WrukVL4TZpdTJsH1uevqbwo/jN0RoZMP3DMp5y0ZM+gAoSjNWWn70nRJUWhUChSXQ=="],
+    "@chat-adapter/telegram": ["@chat-adapter/telegram@4.20.2", "", { "dependencies": { "@chat-adapter/shared": "4.20.2", "chat": "4.20.2" } }, "sha512-TiQwGhZIzZmZ7IkSSxzYw95Gw/2GjP8Qu4ingbSp7fN8fUxVyOzaihNU23DCP+JWdHtc7j5uF6kLgvEtF6VXMw=="],
 
     "@clack/core": ["@clack/core@1.1.0", "", { "dependencies": { "sisteransi": "^1.0.5" } }, "sha512-SVcm4Dqm2ukn64/8Gub2wnlA5nS2iWJyCkdNHcvNHPIeBTGojpdJ+9cZKwLfmqy7irD4N5qLteSilJlE0WLAtA=="],
 
@@ -209,7 +209,7 @@
 
     "character-entities": ["character-entities@2.0.2", "", {}, "sha512-shx7oQ0Awen/BRIdkjkvz54PnEEI/EjwXDSIZp86/KKdbafHh1Df/RYGBhn4hbe2+uKC9FnT5UCEdyPz3ai9hQ=="],
 
-    "chat": ["chat@4.17.0", "", { "dependencies": { "@workflow/serde": "4.1.0-beta.2", "mdast-util-to-string": "^4.0.0", "remark-gfm": "^4.0.0", "remark-parse": "^11.0.0", "remark-stringify": "^11.0.0", "remend": "^1.2.1", "unified": "^11.0.5" } }, "sha512-kX9jIXmEU2ksnF1YshM+qfI/6pBy6k8pELkuRaE2AJyF/0nt4GUc0McBhn2DNpXLDI5sVwRGB3PmI+q5wUtYFg=="],
+    "chat": ["chat@4.20.2", "", { "dependencies": { "@workflow/serde": "4.1.0-beta.2", "mdast-util-to-string": "^4.0.0", "remark-gfm": "^4.0.0", "remark-parse": "^11.0.0", "remark-stringify": "^11.0.0", "remend": "^1.2.1", "unified": "^11.0.5" } }, "sha512-iTyMjE3ZRnubw1t4HgSyhU+sOG5coIBYxNS4DZbBmjQCJ9DnArmiejtG3cMigb11E2OlilZ97oKuRGigIOPh4g=="],
 
     "chokidar": ["chokidar@4.0.3", "", { "dependencies": { "readdirp": "^4.0.1" } }, "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA=="],
 
@@ -478,9 +478,5 @@
     "wrappy": ["wrappy@1.0.2", "", {}, "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="],
 
     "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
-
-    "@chat-adapter/shared/chat": ["chat@4.19.0", "", { "dependencies": { "@workflow/serde": "4.1.0-beta.2", "mdast-util-to-string": "^4.0.0", "remark-gfm": "^4.0.0", "remark-parse": "^11.0.0", "remark-stringify": "^11.0.0", "remend": "^1.2.1", "unified": "^11.0.5" } }, "sha512-DKcs4yQ5RyQ7LWercePBSttiKpsb6EBkQEBq6UrFyyS0R6UgxO4Ow2s0JwdeSplM9OHJ+Jx6ahYdIJKHHccJhw=="],
-
-    "@chat-adapter/telegram/chat": ["chat@4.19.0", "", { "dependencies": { "@workflow/serde": "4.1.0-beta.2", "mdast-util-to-string": "^4.0.0", "remark-gfm": "^4.0.0", "remark-parse": "^11.0.0", "remark-stringify": "^11.0.0", "remend": "^1.2.1", "unified": "^11.0.5" } }, "sha512-DKcs4yQ5RyQ7LWercePBSttiKpsb6EBkQEBq6UrFyyS0R6UgxO4Ow2s0JwdeSplM9OHJ+Jx6ahYdIJKHHccJhw=="],
   }
 }

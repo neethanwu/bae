@@ -40,6 +40,8 @@ export function createBot(
 		method: string,
 		// biome-ignore lint/suspicious/noExplicitAny: Telegram API params
 		params: any,
+		// biome-ignore lint/suspicious/noExplicitAny: internal SDK request options (AbortSignal)
+		request?: any,
 	) => {
 		if (
 			(method === "sendMessage" || method === "editMessageText") &&
@@ -64,7 +66,7 @@ export function createBot(
 				`[bae:tg] ${method} (${originalText.length} chars → ${htmlText.length} HTML chars)`,
 			);
 			try {
-				return await origFetch(method, params);
+				return await origFetch(method, params, request);
 			} catch (err: unknown) {
 				const errMsg = err instanceof Error ? err.message : String(err);
 
@@ -88,7 +90,7 @@ export function createBot(
 					params.text = originalText;
 					delete params.parse_mode;
 					try {
-						return await origFetch(method, params);
+						return await origFetch(method, params, request);
 					} catch (fallbackErr: unknown) {
 						const fbMsg =
 							fallbackErr instanceof Error
@@ -103,7 +105,7 @@ export function createBot(
 				throw err;
 			}
 		}
-		return origFetch(method, params);
+		return origFetch(method, params, request);
 	};
 
 	// Guard: swallow empty-text validation errors from the SDK.
@@ -134,7 +136,12 @@ export function createBot(
 		fallbackStreamingPlaceholderText: "...", // Replaced within ~500ms by first streamed content
 	});
 
-	// DM-only: every message triggers onMessage
+	// Chat SDK v4.20+: DMs route to onDirectMessage; onNewMessage covers non-DM fallback.
+	bot.onDirectMessage(async (thread, message) => {
+		await thread.subscribe();
+		await onMessage(thread, message);
+	});
+
 	bot.onNewMessage(/./, async (thread, message) => {
 		await thread.subscribe();
 		await onMessage(thread, message);
