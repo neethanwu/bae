@@ -75,10 +75,12 @@ jobs:
 
       - name: Create GitHub Release
         run: |
+          printf '%s\n' "$RELEASE_BODY" > /tmp/release-notes.md
           if [[ "${{ github.ref_name }}" == *"-"* ]]; then
-            gh release create "${{ github.ref_name }}" --prerelease --notes "${{ steps.changelog.outputs.body }}"
+            gh release create "${{ github.ref_name }}" --prerelease --notes-file /tmp/release-notes.md
           else
-            gh release create "${{ github.ref_name }}" --notes "${{ steps.changelog.outputs.body }}"
+            gh release create "${{ github.ref_name }}" --notes-file /tmp/release-notes.md
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_BODY: ${{ steps.changelog.outputs.body }}
