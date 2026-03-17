@@ -1,6 +1,8 @@
+import { ClaudeCodeExecutor } from "../executor/claude.ts";
 import type { ExecuteResult, Executor } from "../executor/types.ts";
 import type { AgentEvent } from "../stream/types.ts";
-import type { SessionStore } from "./store.ts";
+import type { Store } from "./store.ts";
+import type { ExecutorType } from "./types.ts";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -12,8 +14,8 @@ export type HandleMessageResult =
  * SessionManager — persistent process with stdin steering.
  *
  * Holds in-memory handles to active agent processes. When a message arrives
- * for a thread with an active handle, it steers (writes to stdin) instead
- * of spawning a new process. The process stays alive across multiple turns.
+ * for a channel+conversation with an active handle, it steers (writes to stdin)
+ * instead of spawning a new process.
  */
 export class SessionManager {
 	private activeHandles: Map<string, ExecuteResult> = new Map();
@@ -21,16 +23,22 @@ export class SessionManager {
 	private idleTimeoutMs: number;
 
 	constructor(
-		private store: SessionStore,
-		private executor: Executor,
-		private defaultCwd: string,
+		private store: Store,
 		idleTimeoutMs?: number,
 	) {
 		this.idleTimeoutMs = idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
 	}
 
-	private handleKey(platform: string, threadId: string): string {
-		return `${platform}:${threadId}`;
+	private handleKey(channelId: string, conversationId: string): string {
+		return `${channelId}:${conversationId}`;
+	}
+
+	private createExecutor(executorType: ExecutorType): Executor {
+		switch (executorType) {
+			case "claude-code":
+				return new ClaudeCodeExecutor();
+			// Phase 3: case "codex": return new CodexExecutor();
+		}
 	}
 
 	private resetIdleTimer(key: string): void {
@@ -54,11 +62,11 @@ export class SessionManager {
 	}
 
 	async handleMessage(
-		platform: string,
-		threadId: string,
+		channelId: string,
+		conversationId: string,
 		text: string,
 	): Promise<HandleMessageResult> {
-		const key = this.handleKey(platform, threadId);
+		const key = this.handleKey(channelId, conversationId);
 		const existing = this.activeHandles.get(key);
 
 		// Steering fast path: active process with send() → write to stdin
@@ -91,11 +99,32 @@ export class SessionManager {
 			};
 		}
 
-		const session = this.store.getOrCreate(platform, threadId, this.defaultCwd);
+		// Resolve workspace from channel
+		const channel = this.store.getChannel(channelId);
+		if (!channel) {
+			return {
+				steered: false,
+				events: (async function* (): AsyncIterable<AgentEvent> {
+					yield { kind: "error", message: "Unknown channel." };
+				})(),
+			};
+		}
+		const workspace = this.store.getWorkspace(channel.workspaceId);
+		if (!workspace) {
+			return {
+				steered: false,
+				events: (async function* (): AsyncIterable<AgentEvent> {
+					yield { kind: "error", message: "Unknown workspace." };
+				})(),
+			};
+		}
 
-		const result = this.executor.execute({
+		const executor = this.createExecutor(workspace.executor);
+		const session = this.store.getOrCreateSession(channelId, conversationId);
+
+		const result = executor.execute({
 			prompt: text,
-			cwd: session.cwd,
+			cwd: workspace.path,
 			resumeSessionId: session.agentSessionId ?? undefined,
 		});
 
@@ -132,11 +161,13 @@ export class SessionManager {
 	}
 
 	/**
-	 * Interrupt and kill the active process for a thread (used by /new).
-	 * Returns true if there was an active process to interrupt.
+	 * Interrupt and kill the active process for a conversation (used by /new).
 	 */
-	async interruptSession(platform: string, threadId: string): Promise<boolean> {
-		const key = this.handleKey(platform, threadId);
+	async interruptSession(
+		channelId: string,
+		conversationId: string,
+	): Promise<boolean> {
+		const key = this.handleKey(channelId, conversationId);
 		const handle = this.activeHandles.get(key);
 		if (!handle) return false;
 
@@ -146,27 +177,24 @@ export class SessionManager {
 		} else {
 			await handle.kill();
 		}
-		// Handle cleanup happens in trackEvents finally block
 		return true;
 	}
 
-	clearSession(platform: string, threadId: string): void {
-		const session = this.store.getOrCreate(platform, threadId, this.defaultCwd);
+	clearSession(channelId: string, conversationId: string): void {
+		const session = this.store.getOrCreateSession(channelId, conversationId);
 		this.store.clearSession(session.id);
 	}
 
-	hasActiveHandle(platform: string, threadId: string): boolean {
-		return this.activeHandles.has(this.handleKey(platform, threadId));
+	hasActiveHandle(channelId: string, conversationId: string): boolean {
+		return this.activeHandles.has(this.handleKey(channelId, conversationId));
 	}
 
 	async shutdown(): Promise<void> {
-		// Clear all idle timers
 		for (const timer of this.idleTimers.values()) {
 			clearTimeout(timer);
 		}
 		this.idleTimers.clear();
 
-		// Kill all active processes
 		const kills = [...this.activeHandles.values()].map((h) => h.kill());
 		await Promise.allSettled(kills);
 		this.activeHandles.clear();
