@@ -1,6 +1,7 @@
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { Chat } from "chat";
 import { markdownToTelegramHtml } from "./formatter/html.ts";
+import { createIMessageChannel } from "./platform/imessage.ts";
 import { createSlackChannel } from "./platform/slack.ts";
 import { telegramThread } from "./platform/telegram.ts";
 import type { ChannelHandle, PlatformThread } from "./platform/types.ts";
@@ -36,6 +37,11 @@ export function createChannel(options: CreateChannelOptions): ChannelHandle {
 			return createSlackChannel({
 				botToken: credentials.SLACK_BOT_TOKEN ?? "",
 				appToken: credentials.SLACK_APP_TOKEN ?? "",
+				channelId: options.channelId,
+				onMessage,
+			});
+		case "imessage":
+			return createIMessageChannel({
 				channelId: options.channelId,
 				onMessage,
 			});

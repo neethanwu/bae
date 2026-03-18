@@ -299,6 +299,24 @@ async function promptCredentials(
 			}
 			return { SLACK_BOT_TOKEN: botToken, SLACK_APP_TOKEN: appToken };
 		}
+		case "imessage": {
+			if (process.platform !== "darwin") {
+				console.error("iMessage local mode is only available on macOS.");
+				process.exit(1);
+			}
+			p.log.info(
+				"iMessage local mode reads from your Mac's Messages database.\n" +
+					"Requirements:\n" +
+					"  1. macOS with iMessage signed in\n" +
+					"  2. Full Disk Access for your terminal (System Settings → Privacy & Security)\n" +
+					"  3. Automation permission for Messages.app (granted on first send)",
+			);
+			p.log.warn(
+				"Note: Full Disk Access grants read access to ALL your messages, not just conversations with this channel.",
+			);
+			// No credentials needed for local mode
+			return {};
+		}
 	}
 }
 
@@ -345,6 +363,27 @@ async function validateCredentials(
 			}
 			break;
 		}
+		case "imessage": {
+			// Validate macOS and chat.db access
+			if (process.platform !== "darwin") {
+				console.error("iMessage requires macOS.");
+				process.exit(1);
+			}
+			try {
+				const { accessSync, constants } = await import("node:fs");
+				const { join } = await import("node:path");
+				const { homedir } = await import("node:os");
+				accessSync(join(homedir(), "Library/Messages/chat.db"), constants.R_OK);
+				p.log.success("Messages database accessible");
+			} catch {
+				console.error(
+					"Cannot read Messages database. Grant Full Disk Access to your terminal:\n" +
+						"  System Settings → Privacy & Security → Full Disk Access → Add your terminal app",
+				);
+				process.exit(1);
+			}
+			break;
+		}
 	}
 }
 
@@ -354,6 +393,9 @@ function validateUserId(id: string, platform: Platform): boolean {
 			return /^\d+$/.test(id);
 		case "slack":
 			return /^[UW][A-Z0-9]+$/.test(id);
+		case "imessage":
+			// Phone numbers (+1234567890) or email addresses
+			return /^\+\d+$/.test(id) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
 	}
 }
 

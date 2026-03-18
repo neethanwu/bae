@@ -186,12 +186,20 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		}
 
 		// 2. Platform selection
+		const platformOptions: { value: string; label: string }[] = [
+			{ value: "telegram", label: "Telegram" },
+			{ value: "slack", label: "Slack" },
+		];
+		if (process.platform === "darwin") {
+			platformOptions.push({
+				value: "imessage",
+				label: "iMessage (macOS only)",
+			});
+		}
+
 		const platformChoice = await p.select({
 			message: "Platform:",
-			options: [
-				{ value: "telegram", label: "Telegram" },
-				{ value: "slack", label: "Slack" },
-			],
+			options: platformOptions,
 		});
 
 		if (p.isCancel(platformChoice)) {
@@ -202,8 +210,8 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		const platform = platformChoice as Platform;
 
 		// 3. Collect credentials (platform-specific)
-		let credentials: Record<string, string>;
-		let displayName: string;
+		let credentials: Record<string, string> = {};
+		let displayName: string = platform;
 
 		if (platform === "telegram") {
 			p.log.info(
@@ -236,8 +244,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 
 			credentials = { TELEGRAM_BOT_TOKEN: botToken };
 			displayName = `@${botInfo.username}`;
-		} else {
-			// Slack
+		} else if (platform === "slack") {
 			p.log.info(
 				"To create a Slack app:\n" +
 					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
@@ -284,21 +291,53 @@ export async function runInit(argv: string[] = []): Promise<void> {
 
 			credentials = { SLACK_BOT_TOKEN: botToken, SLACK_APP_TOKEN: appToken };
 			displayName = "Slack";
+		} else if (platform === "imessage") {
+			// iMessage — no credentials needed, validate chat.db access
+			p.log.info(
+				"iMessage local mode reads from your Mac's Messages database.\n" +
+					"Requirements:\n" +
+					"  1. macOS with iMessage signed in\n" +
+					"  2. Full Disk Access for your terminal\n" +
+					"  3. Automation permission for Messages.app",
+			);
+			p.log.warn(
+				"Note: Full Disk Access grants read access to ALL your messages.",
+			);
+
+			try {
+				const { accessSync, constants } = await import("node:fs");
+				accessSync(join(homedir(), "Library/Messages/chat.db"), constants.R_OK);
+				p.log.success("Messages database accessible");
+			} catch {
+				p.log.error(
+					"Cannot read Messages database. Grant Full Disk Access:\n" +
+						"  System Settings → Privacy & Security → Full Disk Access → Add your terminal",
+				);
+				process.exit(1);
+			}
+
+			credentials = {};
+			displayName = "iMessage";
 		}
 
 		// 4. User restriction
 		const userIdHint =
 			platform === "telegram"
 				? "To find your Telegram user ID, message @userinfobot on Telegram."
-				: "To find your Slack user ID: profile → ⋯ menu → Copy member ID";
+				: platform === "slack"
+					? "To find your Slack user ID: profile → ⋯ menu → Copy member ID"
+					: "Use your phone number (+1234567890) or Apple ID email.";
 		p.log.info(userIdHint);
+
+		const placeholders: Record<string, string> = {
+			telegram: "123456789 (comma-separated for multiple)",
+			slack: "U0123ABCDE (comma-separated for multiple)",
+			imessage: "+1234567890 or email@example.com",
+		};
 
 		const userIds = await p.text({
 			message: "Your user ID(s):",
-			placeholder:
-				platform === "telegram"
-					? "123456789 (comma-separated for multiple)"
-					: "U0123ABCDE (comma-separated for multiple)",
+			placeholder: placeholders[platform] ?? "",
 			validate: (val) => {
 				if (!val) return "At least one user ID is required";
 				const ids = val.split(",").map((s) => s.trim());
@@ -309,6 +348,14 @@ export async function runInit(argv: string[] = []): Promise<void> {
 					ids.some((id) => !/^[UW][A-Z0-9]+$/.test(id))
 				)
 					return "Slack user IDs must start with U or W";
+				if (
+					platform === "imessage" &&
+					ids.some(
+						(id) =>
+							!/^\+\d+$/.test(id) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id),
+					)
+				)
+					return "iMessage user IDs must be phone numbers (+1234567890) or email addresses";
 			},
 		});
 

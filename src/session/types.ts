@@ -5,7 +5,7 @@ import { customAlphabet } from "nanoid";
 export type ExecutorType = "claude-code";
 // Phase 3: "claude-code" | "codex" | "opencode"
 
-export type Platform = "telegram" | "slack";
+export type Platform = "telegram" | "slack" | "imessage";
 // Future: | "discord" | "email"
 
 // --- Domain interfaces (public API) ---
