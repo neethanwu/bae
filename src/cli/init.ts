@@ -39,11 +39,11 @@ function writeGlobalConfig(port: string): void {
 async function setupWorkspaceAndChannel(opts: {
 	store: Store;
 	workspacePath: string;
-	botToken: string;
+	credentials: Record<string, string>;
 	allowedUsers: string[];
 	platform: Platform;
 }): Promise<{ slug: string; channelId: string }> {
-	const { store, workspacePath, botToken, allowedUsers, platform } = opts;
+	const { store, workspacePath, credentials, allowedUsers, platform } = opts;
 
 	const expanded = workspacePath.startsWith("~/")
 		? resolve(homedir(), workspacePath.slice(2))
@@ -66,9 +66,7 @@ async function setupWorkspaceAndChannel(opts: {
 
 	if (existingChannel) {
 		// Update credentials for existing channel
-		writeChannelCredentials(existingChannel.id, {
-			TELEGRAM_BOT_TOKEN: botToken,
-		});
+		writeChannelCredentials(existingChannel.id, credentials);
 		return { slug, channelId: existingChannel.id };
 	}
 
@@ -80,7 +78,7 @@ async function setupWorkspaceAndChannel(opts: {
 		allowedUsers,
 	});
 
-	writeChannelCredentials(channel.id, { TELEGRAM_BOT_TOKEN: botToken });
+	writeChannelCredentials(channel.id, credentials);
 	return { slug, channelId: channel.id };
 }
 
@@ -93,42 +91,57 @@ export async function runInit(argv: string[] = []): Promise<void> {
 	await store.waitReady();
 
 	try {
-		// Headless mode
+		// Headless mode — supports both Telegram and Slack
 		if (flags.token && flags["allowed-users"]) {
-			const botToken = flags.token;
-			if (!botToken.includes(":")) {
-				console.error("Invalid token format (expected id:secret)");
-				process.exit(1);
-			}
-
-			const botInfo = await validateToken(botToken);
-			if (!botInfo) {
-				console.error("Invalid token. Could not connect to Telegram.");
-				process.exit(1);
-			}
-			console.log(`Connected as @${botInfo.username}`);
-
-			const userIds = flags["allowed-users"].split(",").map((s) => s.trim());
-			if (userIds.some((id) => !/^\d+$/.test(id))) {
-				console.error("User IDs must be numeric");
-				process.exit(1);
-			}
-
+			const platform = (flags.platform ?? "telegram") as Platform;
 			const workspace = flags.workspace || join(homedir(), "baesment");
 			const port = existing.BAE_PORT || "3456";
+			const userIds = flags["allowed-users"].split(",").map((s) => s.trim());
+
+			let credentials: Record<string, string>;
+			let displayName: string;
+
+			if (platform === "slack") {
+				const botToken = flags["bot-token"] || flags.token;
+				const appToken = flags["app-token"];
+				if (!botToken?.startsWith("xoxb-")) {
+					console.error("Slack bot token must start with xoxb-");
+					process.exit(1);
+				}
+				if (!appToken?.startsWith("xapp-")) {
+					console.error(
+						"Slack app token (--app-token) is required and must start with xapp-",
+					);
+					process.exit(1);
+				}
+				credentials = { SLACK_BOT_TOKEN: botToken, SLACK_APP_TOKEN: appToken };
+				displayName = "Slack";
+			} else {
+				const botToken = flags.token;
+				if (!botToken.includes(":")) {
+					console.error("Invalid token format (expected id:secret)");
+					process.exit(1);
+				}
+				const botInfo = await validateToken(botToken);
+				if (!botInfo) {
+					console.error("Invalid token. Could not connect to Telegram.");
+					process.exit(1);
+				}
+				console.log(`Connected as @${botInfo.username}`);
+				credentials = { TELEGRAM_BOT_TOKEN: botToken };
+				displayName = `@${botInfo.username}`;
+			}
 
 			writeGlobalConfig(port);
 			const { slug } = await setupWorkspaceAndChannel({
 				store,
 				workspacePath: workspace,
-				botToken,
+				credentials,
 				allowedUsers: userIds,
-				platform: "telegram",
+				platform,
 			});
 
-			console.log(
-				`Ready! @${botInfo.username} → ${workspace} (workspace: ${slug})`,
-			);
+			console.log(`Ready! ${displayName} → ${workspace} (workspace: ${slug})`);
 			console.log("Run `bae start` to begin.");
 			return;
 		}
@@ -172,84 +185,144 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			);
 		}
 
-		// 2. Platform
-		p.note("Slack and Discord support coming soon.", "Other platforms");
-
-		// 3. Collect bot token
-		p.log.info(
-			"To create a Telegram bot:\n" +
-				"  1. Open Telegram and message @BotFather\n" +
-				"  2. Send /newbot and follow the prompts\n" +
-				"  3. Copy the bot token",
-		);
-
-		const botToken = await p.text({
-			message: "Bot token:",
-			placeholder: "123456:ABC-DEF...",
-			validate: (val) => {
-				if (!val || !val.includes(":"))
-					return "Invalid token format (expected id:secret)";
-			},
+		// 2. Platform selection
+		const platformChoice = await p.select({
+			message: "Platform:",
+			options: [
+				{ value: "telegram", label: "Telegram" },
+				{ value: "slack", label: "Slack" },
+			],
 		});
 
-		if (p.isCancel(botToken)) {
+		if (p.isCancel(platformChoice)) {
 			p.cancel("Setup cancelled.");
 			process.exit(0);
 		}
 
-		const botInfo = await validateToken(botToken);
-		if (botInfo) {
-			p.log.success(`Connected as @${botInfo.username}`);
-		} else {
-			p.log.error("Invalid token. Could not connect to Telegram.");
-			process.exit(1);
-		}
+		const platform = platformChoice as Platform;
 
-		// 4. User restriction
-		const restrictUsers = await p.confirm({
-			message: "Restrict to specific users? (recommended)",
-			initialValue: true,
-		});
+		// 3. Collect credentials (platform-specific)
+		let credentials: Record<string, string>;
+		let displayName: string;
 
-		if (p.isCancel(restrictUsers)) {
-			p.cancel("Setup cancelled.");
-			process.exit(0);
-		}
-
-		let allowedUsers: string[] = [];
-		if (restrictUsers) {
+		if (platform === "telegram") {
 			p.log.info(
-				"To find your Telegram user ID, message @userinfobot on Telegram.",
+				"To create a Telegram bot:\n" +
+					"  1. Open Telegram and message @BotFather\n" +
+					"  2. Send /newbot and follow the prompts\n" +
+					"  3. Copy the bot token",
 			);
 
-			const userIds = await p.text({
-				message: "Your Telegram user ID(s):",
-				placeholder: "123456789 (comma-separated for multiple)",
+			const botToken = await p.text({
+				message: "Bot token:",
+				placeholder: "123456:ABC-DEF...",
 				validate: (val) => {
-					if (!val) return "At least one user ID is required";
-					const ids = val.split(",").map((s) => s.trim());
-					if (ids.some((id) => !/^\d+$/.test(id)))
-						return "User IDs must be numeric";
+					if (!val || !val.includes(":"))
+						return "Invalid token format (expected id:secret)";
 				},
 			});
-
-			if (p.isCancel(userIds)) {
+			if (p.isCancel(botToken)) {
 				p.cancel("Setup cancelled.");
 				process.exit(0);
 			}
 
-			allowedUsers = userIds
-				.split(",")
-				.map((s) => s.trim())
-				.filter(Boolean);
+			const botInfo = await validateToken(botToken);
+			if (botInfo) {
+				p.log.success(`Connected as @${botInfo.username}`);
+			} else {
+				p.log.error("Invalid token. Could not connect to Telegram.");
+				process.exit(1);
+			}
+
+			credentials = { TELEGRAM_BOT_TOKEN: botToken };
+			displayName = `@${botInfo.username}`;
+		} else {
+			// Slack
+			p.log.info(
+				"To create a Slack app:\n" +
+					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+					"  2. Paste the manifest from slack-manifest.json in the BAE repo\n" +
+					"  3. Under Basic Information → App-Level Tokens, generate one with connections:write\n" +
+					"  4. Under Install App, install to your workspace\n" +
+					"  5. Copy both tokens below",
+			);
+
+			const botToken = await p.text({
+				message: "Bot OAuth token (xoxb-...):",
+				validate: (val) => {
+					if (!val?.startsWith("xoxb-")) return "Must start with xoxb-";
+				},
+			});
+			if (p.isCancel(botToken)) {
+				p.cancel("Setup cancelled.");
+				process.exit(0);
+			}
+
+			const appToken = await p.text({
+				message: "App-Level token (xapp-...):",
+				validate: (val) => {
+					if (!val?.startsWith("xapp-")) return "Must start with xapp-";
+				},
+			});
+			if (p.isCancel(appToken)) {
+				p.cancel("Setup cancelled.");
+				process.exit(0);
+			}
+
+			// Validate Slack bot token
+			try {
+				const { WebClient } = await import("@slack/web-api");
+				const web = new WebClient(botToken);
+				const result = await web.auth.test();
+				if (result.ok) {
+					p.log.success(`Connected to ${result.team}`);
+				}
+			} catch {
+				p.log.error("Invalid Slack bot token.");
+				process.exit(1);
+			}
+
+			credentials = { SLACK_BOT_TOKEN: botToken, SLACK_APP_TOKEN: appToken };
+			displayName = "Slack";
 		}
 
+		// 4. User restriction
+		const userIdHint =
+			platform === "telegram"
+				? "To find your Telegram user ID, message @userinfobot on Telegram."
+				: "To find your Slack user ID: profile → ⋯ menu → Copy member ID";
+		p.log.info(userIdHint);
+
+		const userIds = await p.text({
+			message: "Your user ID(s):",
+			placeholder:
+				platform === "telegram"
+					? "123456789 (comma-separated for multiple)"
+					: "U0123ABCDE (comma-separated for multiple)",
+			validate: (val) => {
+				if (!val) return "At least one user ID is required";
+				const ids = val.split(",").map((s) => s.trim());
+				if (platform === "telegram" && ids.some((id) => !/^\d+$/.test(id)))
+					return "Telegram user IDs must be numeric";
+				if (
+					platform === "slack" &&
+					ids.some((id) => !/^[UW][A-Z0-9]+$/.test(id))
+				)
+					return "Slack user IDs must start with U or W";
+			},
+		});
+
+		if (p.isCancel(userIds)) {
+			p.cancel("Setup cancelled.");
+			process.exit(0);
+		}
+
+		const allowedUsers = userIds
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean);
+
 		if (allowedUsers.length === 0) {
-			p.log.warn(
-				"No user restrictions set. Anyone who finds your bot can use it.",
-			);
-			// Still need at least a placeholder — the DB enforces non-empty
-			// For unrestricted mode, we'd need a schema change. For now, require at least one.
 			p.log.error("At least one user ID is required for security.");
 			process.exit(1);
 		}
@@ -274,16 +347,16 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		const { slug } = await setupWorkspaceAndChannel({
 			store,
 			workspacePath: workspace,
-			botToken,
+			credentials,
 			allowedUsers,
-			platform: "telegram",
+			platform,
 		});
 
 		const accessLabel = `${allowedUsers.length} authorized user${allowedUsers.length > 1 ? "s" : ""}`;
 
 		p.note(
 			[
-				`Bot:        @${botInfo.username}`,
+				`Channel:    ${displayName}`,
 				`Workspace:  ${workspace} (${slug})`,
 				`Access:     ${accessLabel}`,
 			].join("\n"),

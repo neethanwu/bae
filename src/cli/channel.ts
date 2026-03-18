@@ -121,13 +121,21 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	await checkDuplicateCredentials(platform, creds, store);
 
 	// Prompt for allowed users (required)
+	const userIdHint =
+		platform === "telegram"
+			? "To find your Telegram user ID, message @userinfobot"
+			: "To find your Slack user ID: profile → ⋯ menu → Copy member ID";
+	p.log.info(userIdHint);
+
 	const userIds = await p.text({
 		message: "Allowed user ID(s) (comma-separated):",
 		validate: (val) => {
 			if (!val) return "At least one user ID is required";
 			const ids = val.split(",").map((s) => s.trim());
-			if (ids.some((id) => !/^\d+$/.test(id)))
-				return "User IDs must be numeric";
+			if (!ids.every((id) => validateUserId(id, platform)))
+				return platform === "telegram"
+					? "Telegram user IDs must be numeric"
+					: "Slack user IDs must start with U or W (e.g. U0123ABCDE)";
 		},
 	});
 
@@ -209,20 +217,27 @@ async function checkDuplicateCredentials(
 	creds: Record<string, string>,
 	store: Store,
 ): Promise<void> {
-	if (platform !== "telegram") return;
+	// Determine which credential key identifies the bot/app for this platform
+	const tokenKey =
+		platform === "telegram"
+			? "TELEGRAM_BOT_TOKEN"
+			: platform === "slack"
+				? "SLACK_BOT_TOKEN"
+				: null;
+	if (!tokenKey) return;
 
-	const newToken = creds.TELEGRAM_BOT_TOKEN;
+	const newToken = creds[tokenKey];
 	if (!newToken) return;
 
 	const allChannels = store.listChannels();
 	for (const ch of allChannels) {
-		if (ch.platform !== "telegram") continue;
+		if (ch.platform !== platform) continue;
 		const existingCreds = readChannelCredentials(ch.id);
-		if (existingCreds.TELEGRAM_BOT_TOKEN === newToken) {
+		if (existingCreds[tokenKey] === newToken) {
 			console.error(
-				`This bot token is already used by channel "${ch.label ?? ch.id}" (workspace: ${ch.workspaceId}).`,
+				`This token is already used by channel "${ch.label ?? ch.id}" (workspace: ${ch.workspaceId}).`,
 			);
-			console.error("Each Telegram bot can only be bound to one workspace.");
+			console.error(`Each ${platform} app can only be bound to one workspace.`);
 			process.exit(1);
 		}
 	}
@@ -253,8 +268,37 @@ async function promptCredentials(
 			}
 			return { TELEGRAM_BOT_TOKEN: token };
 		}
-		default:
-			throw new Error(`Unsupported platform: ${platform}`);
+		case "slack": {
+			p.log.info(
+				"To create a Slack app:\n" +
+					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+					"  2. Paste the manifest from slack-manifest.json in the BAE repo\n" +
+					"  3. Under Basic Information → App-Level Tokens, generate one with connections:write\n" +
+					"  4. Under Install App, install to your workspace\n" +
+					"  5. Copy both tokens below",
+			);
+			const botToken = await p.text({
+				message: "Bot OAuth token (xoxb-...):",
+				validate: (val) => {
+					if (!val?.startsWith("xoxb-")) return "Must start with xoxb-";
+				},
+			});
+			if (p.isCancel(botToken)) {
+				p.cancel("Cancelled.");
+				process.exit(0);
+			}
+			const appToken = await p.text({
+				message: "App-Level token (xapp-...):",
+				validate: (val) => {
+					if (!val?.startsWith("xapp-")) return "Must start with xapp-";
+				},
+			});
+			if (p.isCancel(appToken)) {
+				p.cancel("Cancelled.");
+				process.exit(0);
+			}
+			return { SLACK_BOT_TOKEN: botToken, SLACK_APP_TOKEN: appToken };
+		}
 	}
 }
 
@@ -285,6 +329,31 @@ async function validateCredentials(
 			}
 			break;
 		}
+		case "slack": {
+			const token = creds.SLACK_BOT_TOKEN;
+			if (!token) throw new Error("Missing SLACK_BOT_TOKEN");
+			try {
+				const { WebClient } = await import("@slack/web-api");
+				const web = new WebClient(token);
+				const result = await web.auth.test();
+				if (result.ok) {
+					p.log.success(`Connected to ${result.team}`);
+				}
+			} catch {
+				console.error("Invalid Slack bot token.");
+				process.exit(1);
+			}
+			break;
+		}
+	}
+}
+
+function validateUserId(id: string, platform: Platform): boolean {
+	switch (platform) {
+		case "telegram":
+			return /^\d+$/.test(id);
+		case "slack":
+			return /^[UW][A-Z0-9]+$/.test(id);
 	}
 }
 
