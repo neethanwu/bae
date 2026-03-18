@@ -310,9 +310,22 @@ export async function runInit(argv: string[] = []): Promise<void> {
 				p.log.success("Messages database accessible");
 			} catch {
 				p.log.error(
-					"Cannot read Messages database. Grant Full Disk Access:\n" +
-						"  System Settings → Privacy & Security → Full Disk Access → Add your terminal",
+					"Cannot read Messages database. Full Disk Access is required.",
 				);
+				try {
+					const { execSync } = await import("node:child_process");
+					p.log.info("Opening System Settings → Full Disk Access...");
+					execSync(
+						"open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'",
+					);
+					p.log.info(
+						"Add your terminal app, then restart the terminal and try again.",
+					);
+				} catch {
+					p.log.info(
+						"Open manually: System Settings → Privacy & Security → Full Disk Access",
+					);
+				}
 				process.exit(1);
 			}
 

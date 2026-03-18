@@ -121,11 +121,19 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	await checkDuplicateCredentials(platform, creds, store);
 
 	// Prompt for allowed users (required)
-	const userIdHint =
-		platform === "telegram"
-			? "To find your Telegram user ID, message @userinfobot"
-			: "To find your Slack user ID: profile → ⋯ menu → Copy member ID";
-	p.log.info(userIdHint);
+	const userIdHints: Record<string, string> = {
+		telegram: "To find your Telegram user ID, message @userinfobot",
+		slack: "To find your Slack user ID: profile → ⋯ menu → Copy member ID",
+		imessage: "Use your phone number (+1234567890) or Apple ID email address",
+	};
+	p.log.info(userIdHints[platform] ?? "Enter allowed user IDs");
+
+	const userIdErrors: Record<string, string> = {
+		telegram: "Telegram user IDs must be numeric",
+		slack: "Slack user IDs must start with U or W (e.g. U0123ABCDE)",
+		imessage:
+			"iMessage user IDs must be phone numbers (+1234567890) or email addresses",
+	};
 
 	const userIds = await p.text({
 		message: "Allowed user ID(s) (comma-separated):",
@@ -133,9 +141,7 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 			if (!val) return "At least one user ID is required";
 			const ids = val.split(",").map((s) => s.trim());
 			if (!ids.every((id) => validateUserId(id, platform)))
-				return platform === "telegram"
-					? "Telegram user IDs must be numeric"
-					: "Slack user IDs must start with U or W (e.g. U0123ABCDE)";
+				return userIdErrors[platform] ?? "Invalid user ID format";
 		},
 	});
 
@@ -377,9 +383,23 @@ async function validateCredentials(
 				p.log.success("Messages database accessible");
 			} catch {
 				console.error(
-					"Cannot read Messages database. Grant Full Disk Access to your terminal:\n" +
-						"  System Settings → Privacy & Security → Full Disk Access → Add your terminal app",
+					"Cannot read Messages database. Full Disk Access is required.",
 				);
+				// Open System Settings directly to the Full Disk Access page
+				try {
+					const { execSync } = await import("node:child_process");
+					console.log("Opening System Settings → Full Disk Access...");
+					execSync(
+						"open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'",
+					);
+					console.log(
+						"Add your terminal app, then restart the terminal and try again.",
+					);
+				} catch {
+					console.log(
+						"Open manually: System Settings → Privacy & Security → Full Disk Access",
+					);
+				}
 				process.exit(1);
 			}
 			break;
