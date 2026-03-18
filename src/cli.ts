@@ -197,8 +197,19 @@ async function start() {
 	const { Store } = await import("./session/store.ts");
 	const { readChannelCredentials } = await import("./credentials.ts");
 	const { createBridge } = await import("./bridge.ts");
-	const { createBot } = await import("./bot.ts");
+	const { createChannel } = await import("./channel.ts");
 	const { startServer } = await import("./server.ts");
+	const { TELEGRAM_CONFIG } = await import("./platform/telegram.ts");
+	type PlatformConfigType = import("./platform/types.ts").PlatformConfig;
+	type PlatformType = import("./session/types.ts").Platform;
+
+	function getPlatformConfig(platform: PlatformType): PlatformConfigType {
+		switch (platform) {
+			case "telegram":
+				return TELEGRAM_CONFIG;
+			// Phase 3: case "slack": return SLACK_CONFIG;
+		}
+	}
 
 	const store = new Store();
 	await store.waitReady();
@@ -214,8 +225,8 @@ async function start() {
 	const bridge = await createBridge({ store });
 
 	// Boot all channels in parallel (tokens passed directly — no env var race)
-	type BotHandleType = Awaited<ReturnType<typeof createBot>>;
-	const botResults = await Promise.allSettled(
+	type ChannelHandleType = Awaited<ReturnType<typeof createChannel>>;
+	const channelResults = await Promise.allSettled(
 		channels.map(async (channel) => {
 			const creds = readChannelCredentials(channel.id);
 			if (Object.keys(creds).length === 0) {
@@ -236,32 +247,33 @@ async function start() {
 			// Ensure workspace directory exists
 			mkdirSync(ws.path, { recursive: true });
 
-			const bot = createBot({
+			const config = getPlatformConfig(channel.platform);
+			const handle = createChannel({
 				platform: channel.platform,
 				credentials: creds,
 				channelId: channel.id,
-				onMessage: (thread, message) =>
-					bridge.handleMessage(thread, message, channel.id),
+				onMessage: (thread, userId, text) =>
+					bridge.handleMessage(thread, userId, text, channel.id, config),
 			});
 
-			await bot.start();
+			await handle.start();
 			console.log(
 				`[bae] Channel ${channel.label ?? channel.id} (${channel.platform}) → ${ws.path}`,
 			);
-			return bot;
+			return handle;
 		}),
 	);
 
-	const bots: BotHandleType[] = [];
-	for (const r of botResults) {
+	const handles: ChannelHandleType[] = [];
+	for (const r of channelResults) {
 		if (r.status === "fulfilled" && r.value) {
-			bots.push(r.value);
+			handles.push(r.value);
 		} else if (r.status === "rejected") {
 			console.warn(`[bae] Channel failed to start: ${r.reason}`);
 		}
 	}
 
-	if (bots.length === 0) {
+	if (handles.length === 0) {
 		console.error("No channels started successfully. Check credentials.");
 		process.exit(1);
 	}
@@ -272,12 +284,12 @@ async function start() {
 
 	const workspaces = store.listWorkspaces();
 	console.log(
-		`[bae] Running — ${workspaces.length} workspace(s), ${bots.length} channel(s), port ${port}`,
+		`[bae] Running — ${workspaces.length} workspace(s), ${handles.length} channel(s), port ${port}`,
 	);
 
 	async function shutdown() {
 		console.log("[bae] Shutting down...");
-		await Promise.allSettled(bots.map((b) => b.stop()));
+		await Promise.allSettled(handles.map((h) => h.stop()));
 		await bridge.shutdown();
 		try {
 			unlinkSync(PID_FILE);

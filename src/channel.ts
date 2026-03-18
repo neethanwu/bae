@@ -1,42 +1,48 @@
 import { createTelegramAdapter } from "@chat-adapter/telegram";
-import type { MessageData, Thread } from "chat";
 import { Chat } from "chat";
 import { markdownToTelegramHtml } from "./formatter/html.ts";
+import { telegramThread } from "./platform/telegram.ts";
+import type { ChannelHandle, PlatformThread } from "./platform/types.ts";
 import type { Platform } from "./session/types.ts";
 import { createRetryState } from "./state.ts";
 
-export interface BotHandle {
-	start(): Promise<void>;
-	stop(): Promise<void>;
-}
+export type { ChannelHandle };
 
-export interface CreateBotOptions {
+export interface CreateChannelOptions {
 	platform: Platform;
 	credentials: Record<string, string>;
 	channelId: string;
-	onMessage: (thread: Thread, message: MessageData) => Promise<void>;
+	onMessage: (
+		thread: PlatformThread,
+		userId: string,
+		text: string,
+	) => Promise<void>;
 }
 
 /**
- * Create and configure a Chat SDK bot for a single channel.
+ * Create and configure a platform channel adapter.
  *
- * Each channel gets its own Chat instance with its own adapter and state,
- * preventing dedup key collisions when multiple bots are in the same group.
+ * Each channel gets its own adapter instance with its own state,
+ * preventing dedup key collisions when multiple channels exist.
  */
-export function createBot(options: CreateBotOptions): BotHandle {
+export function createChannel(options: CreateChannelOptions): ChannelHandle {
 	const { platform, credentials, onMessage } = options;
 
-	if (platform === "telegram") {
-		return createTelegramBot(credentials, onMessage);
+	switch (platform) {
+		case "telegram":
+			return createTelegramChannel(credentials, onMessage);
+		// Phase 3: case "slack": return createSlackChannel(...)
 	}
-
-	throw new Error(`Unsupported platform: ${platform}`);
 }
 
-function createTelegramBot(
+function createTelegramChannel(
 	credentials: Record<string, string>,
-	onMessage: (thread: Thread, message: MessageData) => Promise<void>,
-): BotHandle {
+	onMessage: (
+		thread: PlatformThread,
+		userId: string,
+		text: string,
+	) => Promise<void>,
+): ChannelHandle {
 	// Pass token DIRECTLY — no process.env mutation
 	const telegramAdapter = createTelegramAdapter({
 		botToken: credentials.TELEGRAM_BOT_TOKEN,
@@ -45,7 +51,6 @@ function createTelegramBot(
 
 	// Override telegramFetch to add parse_mode: "HTML" to all outgoing messages.
 	// This intercepts both regular posts AND streaming edits (from fallbackStream).
-	// Same approach as OpenClaw: markdown → Telegram HTML, with plain-text fallback.
 	// biome-ignore lint/suspicious/noExplicitAny: accessing internal Chat SDK method
 	const adapter = telegramAdapter as any;
 	if (typeof adapter.telegramFetch !== "function") {
@@ -140,7 +145,6 @@ function createTelegramBot(
 	};
 
 	// Separate state adapter per instance — prevents dedup key collisions
-	// when multiple bots are in the same Telegram group
 	const bot = new Chat({
 		userName: "bae",
 		adapters: {
@@ -150,24 +154,34 @@ function createTelegramBot(
 		fallbackStreamingPlaceholderText: "...",
 	});
 
+	// Wrap Chat SDK callbacks: extract userId/text, wrap Thread → PlatformThread
+	const handleChatMessage = async (
+		chatThread: Parameters<Parameters<typeof bot.onDirectMessage>[0]>[0],
+		message: Parameters<Parameters<typeof bot.onDirectMessage>[0]>[1],
+	) => {
+		const thread = telegramThread(chatThread);
+		const userId = message.author?.userId ?? "";
+		const text = message.text ?? "";
+		await onMessage(thread, userId, text);
+	};
+
 	bot.onDirectMessage(async (thread, message) => {
 		await thread.subscribe();
-		await onMessage(thread, message);
+		await handleChatMessage(thread, message);
 	});
 
 	bot.onNewMessage(/./, async (thread, message) => {
 		await thread.subscribe();
-		await onMessage(thread, message);
+		await handleChatMessage(thread, message);
 	});
 
 	bot.onSubscribedMessage(async (thread, message) => {
-		await onMessage(thread, message);
+		await handleChatMessage(thread, message);
 	});
 
 	return {
 		start: () => bot.initialize(),
 		stop: async () => {
-			// Chat.shutdown() does NOT stop polling — must call adapter method directly
 			await telegramAdapter.stopPolling();
 			await bot.shutdown();
 		},

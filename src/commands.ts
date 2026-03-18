@@ -1,4 +1,5 @@
 import type { SessionManager } from "./session/manager.ts";
+import type { Platform } from "./session/types.ts";
 
 export function pick(messages: string[]): string {
 	// biome-ignore lint/style/noNonNullAssertion: array is always non-empty
@@ -147,9 +148,10 @@ export async function handleCommand(
 	sessionManager: SessionManager,
 	channelId: string,
 	conversationId: string,
+	platform: Platform,
 ): Promise<string | null> {
 	// Telegram convention: /start is sent when user first opens the bot
-	if (text === "/start") {
+	if (text === "/start" && platform === "telegram") {
 		return pick(START_MESSAGES);
 	}
 

@@ -1,4 +1,3 @@
-import type { MessageData, Thread } from "chat";
 import {
 	ERROR_AGENT_MESSAGES,
 	ERROR_SPAWN_MESSAGES,
@@ -6,14 +5,13 @@ import {
 	handleCommand,
 	pick,
 } from "./commands.ts";
-import { formatToolStatus } from "./formatter/telegram.ts";
+import { formatToolStatus } from "./formatter/common.ts";
+import type { PlatformConfig, PlatformThread } from "./platform/types.ts";
 import { SessionManager } from "./session/manager.ts";
 import type { Store } from "./session/store.ts";
 import type { AgentEvent } from "./stream/types.ts";
 
 const TYPING_INTERVAL_MS = 4_000;
-const SPLIT_SOFT = 2000; // Start looking for \n\n paragraph breaks
-const SPLIT_HARD = 2500; // Force split — accounts for ~60% SDK expansion (table wrapping, remend healing)
 const LOG_PREVIEW_LEN = 80;
 
 export interface BridgeConfig {
@@ -22,9 +20,11 @@ export interface BridgeConfig {
 
 export interface BridgeHandle {
 	handleMessage(
-		thread: Thread,
-		message: MessageData,
+		thread: PlatformThread,
+		userId: string,
+		text: string,
 		channelId: string,
+		config: PlatformConfig,
 	): Promise<void>;
 	shutdown(): Promise<void>;
 }
@@ -39,9 +39,11 @@ export async function createBridge(
 	const sessionManager = new SessionManager(store);
 
 	async function handleMessage(
-		thread: Thread,
-		message: MessageData,
+		thread: PlatformThread,
+		userId: string,
+		text: string,
 		channelId: string,
+		config: PlatformConfig,
 	): Promise<void> {
 		// Per-channel auth check
 		const channel = store.getChannel(channelId);
@@ -50,19 +52,17 @@ export async function createBridge(
 			return;
 		}
 
-		const userId = message.author?.userId ?? "";
 		if (!channel.allowedUsers.includes(userId)) {
 			console.log(`[bae] Rejected message from unauthorized user: ${userId}`);
 			return;
 		}
 
-		const text = message.text;
 		if (!text || text.trim() === "") {
 			await thread.post("Only text messages are supported.");
 			return;
 		}
 
-		const conversationId = String(thread.id);
+		const conversationId = thread.id;
 
 		// Command routing
 		const cmdResponse = await handleCommand(
@@ -70,6 +70,7 @@ export async function createBridge(
 			sessionManager,
 			channelId,
 			conversationId,
+			channel.platform,
 		);
 		if (cmdResponse !== null) {
 			await thread.post(cmdResponse);
@@ -100,11 +101,11 @@ export async function createBridge(
 			thread.startTyping().catch(() => {});
 
 			// Start long-lived event consumer in background.
-			// Must NOT await: the Chat SDK holds a thread lock while our handler
+			// Must NOT await: some SDKs hold a thread lock while our handler
 			// runs. If we block here, subsequent messages (steering) get LOCK_FAILED.
 			// The consumer runs for the entire process lifetime and handles all turns.
 			console.log(`[bae] Spawned in ${Date.now() - startTime}ms`);
-			consumeAllTurns(thread, result.events).catch(async (err) => {
+			consumeAllTurns(thread, result.events, config).catch(async (err) => {
 				console.error("[bae] consumeAllTurns error:", err);
 				await thread.post(pick(ERROR_STREAM_MESSAGES)).catch(() => {});
 			});
@@ -125,18 +126,17 @@ export async function createBridge(
 /**
  * Long-lived event consumer — handles ALL turns from a persistent process.
  *
- * Streams text to Telegram in real-time via the Chat SDK's fallbackStream
- * (post placeholder → edit every 500ms with accumulated text). When the
- * message approaches Telegram's 4096 char limit, ends the current stream
- * and starts a new message for the overflow.
- *
- * When a steered message's response events arrive, this consumer picks
- * them up automatically.
+ * Streams text in real-time via PlatformThread.postStream() (each platform
+ * implements this differently — Telegram uses edit-in-place, Slack uses
+ * native streaming API). When the message approaches the platform's split
+ * threshold, ends the current stream and starts a new message.
  */
 async function consumeAllTurns(
-	thread: Thread,
+	thread: PlatformThread,
 	events: AsyncIterable<AgentEvent>,
+	config: PlatformConfig,
 ): Promise<void> {
+	const { splitSoft, splitHard } = config;
 	let turnStartTime = Date.now();
 	let typingInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -147,7 +147,7 @@ async function consumeAllTurns(
 	let messageCount = 0;
 	let resultEvent: Extract<AgentEvent, { kind: "result" }> | null = null;
 
-	// Streaming state — buffered push stream for thread.post(AsyncIterable)
+	// Streaming state — buffered push stream for thread.postStream(AsyncIterable)
 	let buffer: (string | null)[] = [];
 	let streamResolve: ((value: undefined) => void) | null = null;
 	let currentStreamLength = 0;
@@ -210,7 +210,7 @@ async function consumeAllTurns(
 		buffer = [];
 		streamResolve = null;
 		const stream = createStream();
-		postPromise = thread.post(stream);
+		postPromise = thread.postStream(stream);
 		messageCount++;
 	}
 
@@ -252,7 +252,7 @@ async function consumeAllTurns(
 			}
 			await thread.post("(no response from agent)");
 		} else if (isStreaming) {
-			// End the active stream — fallbackStream does the final edit
+			// End the active stream — platform handles the final update
 			endStream();
 			await postPromise;
 		}
@@ -294,14 +294,14 @@ async function consumeAllTurns(
 				}
 
 				// Smart split: prefer paragraph breaks to avoid cutting tables/code blocks.
-				// Soft zone (SPLIT_SOFT+): split at \n\n if the chunk has one.
-				// Hard zone (SPLIT_HARD+): split at any \n, or force-cut if none.
+				// Soft zone (splitSoft+): split at \n\n if the chunk has one.
+				// Hard zone (splitHard+): split at any \n, or force-cut if none.
 				const wouldReachHard =
-					currentStreamLength + event.text.length >= SPLIT_HARD;
+					currentStreamLength + event.text.length >= splitHard;
 
-				if (currentStreamLength >= SPLIT_HARD || wouldReachHard) {
+				if (currentStreamLength >= splitHard || wouldReachHard) {
 					// At or approaching hard limit — find best split point in chunk
-					const remaining = Math.max(0, SPLIT_HARD - currentStreamLength);
+					const remaining = Math.max(0, splitHard - currentStreamLength);
 					const searchArea = event.text.slice(0, remaining);
 					const breakIdx = searchArea.lastIndexOf("\n");
 
@@ -333,7 +333,7 @@ async function consumeAllTurns(
 						pushChunk(event.text);
 					}
 				} else if (
-					currentStreamLength > SPLIT_SOFT &&
+					currentStreamLength > splitSoft &&
 					event.text.includes("\n\n")
 				) {
 					// Soft zone — split at last paragraph break
