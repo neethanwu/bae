@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import { writeChannelCredentials } from "../credentials.ts";
 import { Store } from "../session/store.ts";
@@ -114,8 +114,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 				process.exit(1);
 			}
 
-			const workspace =
-				flags.workspace || join(homedir(), "baesment");
+			const workspace = flags.workspace || join(homedir(), "baesment");
 			const port = existing.BAE_PORT || "3456";
 
 			writeGlobalConfig(port);
@@ -127,7 +126,9 @@ export async function runInit(argv: string[] = []): Promise<void> {
 				platform: "telegram",
 			});
 
-			console.log(`Ready! @${botInfo.username} → ${workspace} (workspace: ${slug})`);
+			console.log(
+				`Ready! @${botInfo.username} → ${workspace} (workspace: ${slug})`,
+			);
 			console.log("Run `bae start` to begin.");
 			return;
 		}
@@ -163,9 +164,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 				execSync("claude auth status", { stdio: "pipe", timeout: 5000 });
 				p.log.success("claude authenticated");
 			} catch {
-				p.log.warn(
-					"claude may not be authenticated. Run: claude auth login",
-				);
+				p.log.warn("claude may not be authenticated. Run: claude auth login");
 			}
 		} else {
 			p.log.warn(

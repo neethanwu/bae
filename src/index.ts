@@ -5,7 +5,7 @@
  * CLI and bot entry points import internals directly.
  */
 
-export type { BotHandle } from "./bot.ts";
+export type { BotHandle, CreateBotOptions } from "./bot.ts";
 export { createBot } from "./bot.ts";
 export type { BridgeConfig, BridgeHandle } from "./bridge.ts";
 export { createBridge } from "./bridge.ts";
@@ -16,4 +16,11 @@ export type {
 	Executor,
 } from "./executor/types.ts";
 export { SessionManager } from "./session/manager.ts";
-export { SessionStore } from "./session/store.ts";
+export { Store } from "./session/store.ts";
+export type {
+	Channel,
+	ExecutorType,
+	Platform,
+	Session,
+	Workspace,
+} from "./session/types.ts";

@@ -117,10 +117,7 @@ export function toSession(row: SessionRow): Session {
 
 // --- Channel ID generation ---
 
-const generateId = customAlphabet(
-	"0123456789abcdefghijklmnopqrstuvwxyz",
-	10,
-);
+const generateId = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 10);
 
 export function channelId(): string {
 	return `chan_${generateId()}`;

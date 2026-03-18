@@ -221,9 +221,7 @@ async function validateCredentials(
 			const token = creds.TELEGRAM_BOT_TOKEN;
 			if (!token) throw new Error("Missing TELEGRAM_BOT_TOKEN");
 			try {
-				const res = await fetch(
-					`https://api.telegram.org/bot${token}/getMe`,
-				);
+				const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
 				if (!res.ok) {
 					console.error("Invalid Telegram bot token.");
 					process.exit(1);

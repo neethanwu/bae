@@ -45,7 +45,9 @@ export async function workspaceCommand(
 function listWorkspaces(store: Store): void {
 	const workspaces = store.listWorkspaces();
 	if (workspaces.length === 0) {
-		console.log("No workspaces configured. Run `bae init` or `bae workspace add`.");
+		console.log(
+			"No workspaces configured. Run `bae init` or `bae workspace add`.",
+		);
 		return;
 	}
 	console.log("\nWorkspaces:\n");
@@ -89,7 +91,9 @@ async function addWorkspace(args: string[], store: Store): Promise<void> {
 
 	const slug = flags.slug;
 	if (!slug) {
-		console.error("Usage: bae workspace add <slug> --name <name> --path <path> [--executor claude-code]");
+		console.error(
+			"Usage: bae workspace add <slug> --name <name> --path <path> [--executor claude-code]",
+		);
 		process.exit(1);
 	}
 
@@ -127,7 +131,12 @@ async function addWorkspace(args: string[], store: Store): Promise<void> {
 	}
 
 	try {
-		const ws = store.createWorkspace({ id: slug, name, path: expanded, executor });
+		const ws = store.createWorkspace({
+			id: slug,
+			name,
+			path: expanded,
+			executor,
+		});
 		console.log(`Workspace "${ws.id}" created at ${ws.path}`);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -198,12 +207,18 @@ async function setExecutor(args: string[], store: Store): Promise<void> {
 
 	store.setWorkspaceExecutor(slug, executor);
 	store.clearWorkspaceSessions(slug);
-	console.log(`Workspace "${slug}" executor set to "${executor}". Session history cleared.`);
+	console.log(
+		`Workspace "${slug}" executor set to "${executor}". Session history cleared.`,
+	);
 }
 
 /** Derive a slug from a workspace path basename. */
 export function slugFromPath(p: string): string {
-	const name = basename(p).toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+	const name = basename(p)
+		.toLowerCase()
+		.replace(/[^a-z0-9-]/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "");
 	return name || "default";
 }
 

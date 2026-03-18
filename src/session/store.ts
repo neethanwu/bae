@@ -1,21 +1,20 @@
-import { existsSync, realpathSync } from "node:fs";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { type DB, openDatabase } from "./db.ts";
 import {
 	type Channel,
 	type ChannelRow,
+	channelId,
 	type ExecutorType,
 	type Platform,
 	type Session,
 	type SessionRow,
-	type Workspace,
-	type WorkspaceRow,
-	channelId,
 	toChannel,
 	toSession,
 	toWorkspace,
+	type Workspace,
+	type WorkspaceRow,
 } from "./types.ts";
 
 export type { Channel, ExecutorType, Platform, Session, Workspace };
@@ -65,9 +64,7 @@ export class Store {
 	private ready: Promise<void>;
 
 	constructor(dbPath?: string) {
-		const dir = dbPath
-			? dirname(dbPath)
-			: join(homedir(), ".bae");
+		const dir = dbPath ? dirname(dbPath) : join(homedir(), ".bae");
 		mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 		const path = dbPath ?? join(dir, "bae.db");
@@ -214,7 +211,9 @@ export class Store {
 
 	listChannels(): Channel[] {
 		return this.db
-			.queryAll<ChannelRow>("SELECT * FROM channels ORDER BY workspace_id, platform")
+			.queryAll<ChannelRow>(
+				"SELECT * FROM channels ORDER BY workspace_id, platform",
+			)
 			.map(toChannel);
 	}
 
