@@ -17,11 +17,13 @@ export const SLACK_CONFIG: PlatformConfig = {
 
 // --- Slack PlatformThread ---
 
+const STREAM_UPDATE_INTERVAL_MS = 1000; // chat.update rate: ~50/min → 1 update/sec is safe
+
 /**
  * Create a PlatformThread for Slack.
  *
- * @param useThread - If true, replies go in a thread (for group/channel use).
- *                    If false, replies are top-level DM messages (default for DMs).
+ * DMs: flat replies (no thread_ts), streaming via post+edit.
+ * Groups/channels (future): threaded, streaming via ChatStreamer.
  */
 export function slackThread(
 	web: WebClient,
@@ -31,20 +33,10 @@ export function slackThread(
 ): PlatformThread {
 	const replyTs = useThread && threadTs ? threadTs : undefined;
 
-	// Track a placeholder message for typing indicator
-	let typingTs: string | null = null;
-
 	return {
 		id: channel, // DM channel ID = conversationId
 
 		async post(text: string) {
-			// If we have a typing placeholder, edit it instead of posting new
-			if (typingTs) {
-				const ts = typingTs;
-				typingTs = null;
-				await web.chat.update({ channel, ts, text });
-				return;
-			}
 			await web.chat.postMessage({
 				channel,
 				text,
@@ -53,59 +45,72 @@ export function slackThread(
 		},
 
 		async postStream(chunks: AsyncIterable<string>) {
-			// Delete typing placeholder before streaming (stream creates its own message)
-			if (typingTs) {
-				await web.chat.delete({ channel, ts: typingTs }).catch(() => {});
-				typingTs = null;
+			// DM streaming: post a message then edit it progressively.
+			// Similar to Telegram's fallbackStream (edit-in-place).
+			// chat.update is Tier 3 (~50/min), so update every ~1s.
+			let accumulated = "";
+			let messageTs: string | null = null;
+			let lastUpdate = 0;
+
+			for await (const chunk of chunks) {
+				accumulated += chunk;
+				const now = Date.now();
+
+				if (!messageTs) {
+					// First chunk — post the initial message
+					try {
+						const result = await web.chat.postMessage({
+							channel,
+							text: accumulated,
+							thread_ts: replyTs,
+						});
+						messageTs = result.ts ?? null;
+						lastUpdate = now;
+					} catch (err) {
+						console.error("[bae:slack] Failed to post initial message:", err);
+					}
+				} else if (now - lastUpdate >= STREAM_UPDATE_INTERVAL_MS) {
+					// Subsequent chunks — edit the message
+					try {
+						await web.chat.update({
+							channel,
+							ts: messageTs,
+							text: accumulated,
+						});
+						lastUpdate = now;
+					} catch (err) {
+						// "message not modified" is harmless
+						const msg = err instanceof Error ? err.message : "";
+						if (!msg.includes("not_modified")) {
+							console.error("[bae:slack] Failed to update message:", err);
+						}
+					}
+				}
 			}
 
-			let accumulated = "";
-			try {
-				const streamerOpts: Record<string, unknown> = { channel };
-				if (replyTs) streamerOpts.thread_ts = replyTs;
-				const streamer = web.chatStream(
-					streamerOpts as Parameters<typeof web.chatStream>[0],
-				);
-
-				for await (const chunk of chunks) {
-					accumulated += chunk;
-					await streamer.append({ markdown_text: chunk });
-				}
-
-				await streamer.stop();
-			} catch (err) {
-				console.error("[bae:slack] Streaming failed, falling back:", err);
-				let full = accumulated;
+			// Final update with complete text
+			if (messageTs && accumulated) {
 				try {
-					for await (const chunk of chunks) full += chunk;
-				} catch {
-					// Iterator may be exhausted
-				}
-				if (full) {
-					await web.chat.postMessage({
+					await web.chat.update({
 						channel,
-						text: full,
-						thread_ts: replyTs,
+						ts: messageTs,
+						text: accumulated,
 					});
+				} catch {
+					// Best effort
 				}
+			} else if (!messageTs && accumulated) {
+				// Never managed to post — send as discrete message
+				await web.chat.postMessage({
+					channel,
+					text: accumulated,
+					thread_ts: replyTs,
+				});
 			}
 		},
 
 		async startTyping() {
-			// Post a "..." placeholder as a typing indicator
-			// Gets deleted when streaming starts, or edited when a discrete message posts
-			if (!typingTs) {
-				try {
-					const result = await web.chat.postMessage({
-						channel,
-						text: "...",
-						thread_ts: replyTs,
-					});
-					typingTs = result.ts ?? null;
-				} catch {
-					// Non-critical — just means no typing indicator
-				}
-			}
+			// Slack has no typing indicator API for bots in DMs — no-op
 		},
 	};
 }
