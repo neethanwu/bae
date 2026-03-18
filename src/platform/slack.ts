@@ -17,22 +17,18 @@ export const SLACK_CONFIG: PlatformConfig = {
 
 // --- Slack PlatformThread ---
 
-const STREAM_UPDATE_INTERVAL_MS = 1000; // chat.update rate: ~50/min → 1 update/sec is safe
-
 /**
  * Create a PlatformThread for Slack.
  *
- * DMs: flat replies (no thread_ts), streaming via post+edit.
- * Groups/channels (future): threaded, streaming via ChatStreamer.
+ * Uses native streaming API (chatStream) for responses — no "(edited)" tag,
+ * real-time streaming UX. Responses appear as thread replies, which is the
+ * standard pattern for AI assistants in Slack (Claude, ChatGPT, etc.).
  */
 export function slackThread(
 	web: WebClient,
 	channel: string,
 	threadTs: string,
-	useThread = false,
 ): PlatformThread {
-	const replyTs = useThread && threadTs ? threadTs : undefined;
-
 	return {
 		id: channel, // DM channel ID = conversationId
 
@@ -40,72 +36,39 @@ export function slackThread(
 			await web.chat.postMessage({
 				channel,
 				text,
-				thread_ts: replyTs,
+				thread_ts: threadTs || undefined,
 			});
 		},
 
 		async postStream(chunks: AsyncIterable<string>) {
-			// DM streaming: post a message then edit it progressively.
-			// Similar to Telegram's fallbackStream (edit-in-place).
-			// chat.update is Tier 3 (~50/min), so update every ~1s.
 			let accumulated = "";
-			let messageTs: string | null = null;
-			let lastUpdate = 0;
-
-			for await (const chunk of chunks) {
-				accumulated += chunk;
-				const now = Date.now();
-
-				if (!messageTs) {
-					// First chunk — post the initial message
-					try {
-						const result = await web.chat.postMessage({
-							channel,
-							text: accumulated,
-							thread_ts: replyTs,
-						});
-						messageTs = result.ts ?? null;
-						lastUpdate = now;
-					} catch (err) {
-						console.error("[bae:slack] Failed to post initial message:", err);
-					}
-				} else if (now - lastUpdate >= STREAM_UPDATE_INTERVAL_MS) {
-					// Subsequent chunks — edit the message
-					try {
-						await web.chat.update({
-							channel,
-							ts: messageTs,
-							text: accumulated,
-						});
-						lastUpdate = now;
-					} catch (err) {
-						// "message not modified" is harmless
-						const msg = err instanceof Error ? err.message : "";
-						if (!msg.includes("not_modified")) {
-							console.error("[bae:slack] Failed to update message:", err);
-						}
-					}
-				}
-			}
-
-			// Final update with complete text
-			if (messageTs && accumulated) {
-				try {
-					await web.chat.update({
-						channel,
-						ts: messageTs,
-						text: accumulated,
-					});
-				} catch {
-					// Best effort
-				}
-			} else if (!messageTs && accumulated) {
-				// Never managed to post — send as discrete message
-				await web.chat.postMessage({
+			try {
+				const streamer = web.chatStream({
 					channel,
-					text: accumulated,
-					thread_ts: replyTs,
+					thread_ts: threadTs,
 				});
+
+				for await (const chunk of chunks) {
+					accumulated += chunk;
+					await streamer.append({ markdown_text: chunk });
+				}
+
+				await streamer.stop();
+			} catch (err) {
+				console.error("[bae:slack] Streaming failed, falling back:", err);
+				let full = accumulated;
+				try {
+					for await (const chunk of chunks) full += chunk;
+				} catch {
+					// Iterator may be exhausted
+				}
+				if (full) {
+					await web.chat.postMessage({
+						channel,
+						text: full,
+						thread_ts: threadTs || undefined,
+					});
+				}
 			}
 		},
 
@@ -159,10 +122,7 @@ export function createSlackChannel(
 		const dedupKey = event.client_msg_id || event.ts;
 		if (isDuplicate(dedupKey)) return;
 
-		// DMs: no threading (flat replies). If this is already inside a thread
-		// (user replied in a thread), respect it.
-		const isInThread = !!event.thread_ts;
-		const thread = slackThread(web, event.channel, event.ts, isInThread);
+		const thread = slackThread(web, event.channel, event.thread_ts || event.ts);
 		await options.onMessage(thread, event.user, event.text);
 	});
 
