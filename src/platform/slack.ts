@@ -17,30 +17,55 @@ export const SLACK_CONFIG: PlatformConfig = {
 
 // --- Slack PlatformThread ---
 
+/**
+ * Create a PlatformThread for Slack.
+ *
+ * @param useThread - If true, replies go in a thread (for group/channel use).
+ *                    If false, replies are top-level DM messages (default for DMs).
+ */
 export function slackThread(
 	web: WebClient,
 	channel: string,
 	threadTs: string,
+	useThread = false,
 ): PlatformThread {
+	const replyTs = useThread && threadTs ? threadTs : undefined;
+
+	// Track a placeholder message for typing indicator
+	let typingTs: string | null = null;
+
 	return {
 		id: channel, // DM channel ID = conversationId
 
 		async post(text: string) {
+			// If we have a typing placeholder, edit it instead of posting new
+			if (typingTs) {
+				const ts = typingTs;
+				typingTs = null;
+				await web.chat.update({ channel, ts, text });
+				return;
+			}
 			await web.chat.postMessage({
 				channel,
 				text,
-				thread_ts: threadTs || undefined,
+				thread_ts: replyTs,
 			});
 		},
 
 		async postStream(chunks: AsyncIterable<string>) {
+			// Delete typing placeholder before streaming (stream creates its own message)
+			if (typingTs) {
+				await web.chat.delete({ channel, ts: typingTs }).catch(() => {});
+				typingTs = null;
+			}
+
 			let accumulated = "";
 			try {
-				// Use ChatStreamer — handles startStream/appendStream buffering
-				const streamer = web.chatStream({
-					channel,
-					thread_ts: threadTs,
-				});
+				const streamerOpts: Record<string, unknown> = { channel };
+				if (replyTs) streamerOpts.thread_ts = replyTs;
+				const streamer = web.chatStream(
+					streamerOpts as Parameters<typeof web.chatStream>[0],
+				);
 
 				for await (const chunk of chunks) {
 					accumulated += chunk;
@@ -49,7 +74,6 @@ export function slackThread(
 
 				await streamer.stop();
 			} catch (err) {
-				// Fallback: collect remaining chunks and post as single message
 				console.error("[bae:slack] Streaming failed, falling back:", err);
 				let full = accumulated;
 				try {
@@ -61,14 +85,27 @@ export function slackThread(
 					await web.chat.postMessage({
 						channel,
 						text: full,
-						thread_ts: threadTs || undefined,
+						thread_ts: replyTs,
 					});
 				}
 			}
 		},
 
 		async startTyping() {
-			// Slack has no bot typing indicator in DMs — no-op
+			// Post a "..." placeholder as a typing indicator
+			// Gets deleted when streaming starts, or edited when a discrete message posts
+			if (!typingTs) {
+				try {
+					const result = await web.chat.postMessage({
+						channel,
+						text: "...",
+						thread_ts: replyTs,
+					});
+					typingTs = result.ts ?? null;
+				} catch {
+					// Non-critical — just means no typing indicator
+				}
+			}
 		},
 	};
 }
@@ -117,7 +154,10 @@ export function createSlackChannel(
 		const dedupKey = event.client_msg_id || event.ts;
 		if (isDuplicate(dedupKey)) return;
 
-		const thread = slackThread(web, event.channel, event.thread_ts || event.ts);
+		// DMs: no threading (flat replies). If this is already inside a thread
+		// (user replied in a thread), respect it.
+		const isInThread = !!event.thread_ts;
+		const thread = slackThread(web, event.channel, event.ts, isInThread);
 		await options.onMessage(thread, event.user, event.text);
 	});
 
