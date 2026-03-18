@@ -1,0 +1,265 @@
+import * as p from "@clack/prompts";
+import {
+	deleteChannelCredentials,
+	writeChannelCredentials,
+} from "../credentials.ts";
+import type { Store } from "../session/store.ts";
+import type { Platform } from "../session/types.ts";
+
+export async function channelCommand(
+	args: string[],
+	store: Store,
+): Promise<void> {
+	const sub = args[0];
+
+	switch (sub) {
+		case "list":
+			return listChannels(args.slice(1), store);
+		case "add":
+			return addChannel(args.slice(1), store);
+		case "remove":
+			return removeChannel(args.slice(1), store);
+		default:
+			console.error(
+				`Unknown channel command: ${sub}\nUsage: bae channel [list|add|remove]`,
+			);
+			process.exit(1);
+	}
+}
+
+function listChannels(args: string[], store: Store): void {
+	let workspaceFilter: string | undefined;
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === "--workspace" && args[i + 1]) {
+			workspaceFilter = args[++i];
+		}
+	}
+
+	const channels = workspaceFilter
+		? store.getChannelsByWorkspace(workspaceFilter)
+		: store.listChannels();
+
+	if (channels.length === 0) {
+		console.log("No channels configured. Run `bae init` or `bae channel add`.");
+		return;
+	}
+
+	console.log("\nChannels:\n");
+	for (const ch of channels) {
+		console.log(
+			`  ${ch.id}  workspace=${ch.workspaceId}  platform=${ch.platform}  label=${ch.label ?? "(none)"}  users=${ch.allowedUsers.join(",")}`,
+		);
+	}
+	console.log();
+}
+
+function parseChannelFlags(argv: string[]): {
+	slug?: string;
+	platform?: string;
+	label?: string;
+	channelId?: string;
+	force?: boolean;
+} {
+	const result: ReturnType<typeof parseChannelFlags> = {};
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (!arg) continue;
+		if (arg === "--force" || arg === "-f") {
+			result.force = true;
+		} else if (arg === "--platform" && argv[i + 1]) {
+			result.platform = argv[++i];
+		} else if (arg === "--label" && argv[i + 1]) {
+			result.label = argv[++i];
+		} else if (!arg.startsWith("-") && !result.slug) {
+			result.slug = arg;
+		}
+	}
+	return result;
+}
+
+async function addChannel(args: string[], store: Store): Promise<void> {
+	const flags = parseChannelFlags(args);
+
+	const workspaceSlug = flags.slug;
+	if (!workspaceSlug) {
+		console.error(
+			"Usage: bae channel add <workspace-slug> --platform telegram [--label 'My Bot']",
+		);
+		process.exit(1);
+	}
+
+	const ws = store.getWorkspace(workspaceSlug);
+	if (!ws) {
+		console.error(`Workspace "${workspaceSlug}" not found.`);
+		process.exit(1);
+	}
+
+	const platform = (flags.platform ?? "telegram") as Platform;
+
+	// Prompt for platform-specific credentials
+	const creds = await promptCredentials(platform);
+
+	// Validate credentials
+	await validateCredentials(platform, creds);
+
+	// Prompt for allowed users (required)
+	const userIds = await p.text({
+		message: "Allowed user ID(s) (comma-separated):",
+		validate: (val) => {
+			if (!val) return "At least one user ID is required";
+			const ids = val.split(",").map((s) => s.trim());
+			if (ids.some((id) => !/^\d+$/.test(id)))
+				return "User IDs must be numeric";
+		},
+	});
+
+	if (p.isCancel(userIds)) {
+		p.cancel("Cancelled.");
+		process.exit(0);
+	}
+
+	const allowedUsers = userIds
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	const label = flags.label ?? `${workspaceSlug} on ${platform}`;
+
+	try {
+		const channel = store.createChannel({
+			workspaceId: workspaceSlug,
+			platform,
+			label,
+			allowedUsers,
+		});
+
+		// Write credentials to file after DB record succeeds
+		writeChannelCredentials(channel.id, creds);
+
+		console.log(`Channel ${channel.id} created (${label})`);
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		if (msg.includes("UNIQUE")) {
+			console.error(
+				`Workspace "${workspaceSlug}" already has a ${platform} channel.`,
+			);
+		} else {
+			console.error(`Failed to create channel: ${msg}`);
+		}
+		process.exit(1);
+	}
+}
+
+async function removeChannel(args: string[], store: Store): Promise<void> {
+	const channelId = args.find((a) => !a.startsWith("-"));
+	const force = args.includes("--force") || args.includes("-f");
+
+	if (!channelId) {
+		console.error("Usage: bae channel remove <channel-id> [--force]");
+		process.exit(1);
+	}
+
+	const channel = store.getChannel(channelId);
+	if (!channel) {
+		console.error(`Channel "${channelId}" not found.`);
+		process.exit(1);
+	}
+
+	checkNotRunning();
+
+	if (!force) {
+		const confirm = await p.confirm({
+			message: `Delete channel "${channel.label ?? channelId}" (${channel.platform})?`,
+		});
+		if (p.isCancel(confirm) || !confirm) {
+			console.log("Cancelled.");
+			return;
+		}
+	}
+
+	// Delete credential file BEFORE DB record
+	deleteChannelCredentials(channelId);
+	store.deleteChannel(channelId);
+	console.log(`Channel "${channelId}" deleted.`);
+}
+
+async function promptCredentials(
+	platform: Platform,
+): Promise<Record<string, string>> {
+	switch (platform) {
+		case "telegram": {
+			p.log.info(
+				"To create a Telegram bot:\n" +
+					"  1. Open Telegram and message @BotFather\n" +
+					"  2. Send /newbot and follow the prompts\n" +
+					"  3. Copy the bot token",
+			);
+			const token = await p.text({
+				message: "Bot token:",
+				placeholder: "123456:ABC-DEF...",
+				validate: (val) => {
+					if (!val || !val.includes(":"))
+						return "Invalid token format (expected id:secret)";
+				},
+			});
+			if (p.isCancel(token)) {
+				p.cancel("Cancelled.");
+				process.exit(0);
+			}
+			return { TELEGRAM_BOT_TOKEN: token };
+		}
+		default:
+			throw new Error(`Unsupported platform: ${platform}`);
+	}
+}
+
+async function validateCredentials(
+	platform: Platform,
+	creds: Record<string, string>,
+): Promise<void> {
+	switch (platform) {
+		case "telegram": {
+			const token = creds.TELEGRAM_BOT_TOKEN;
+			if (!token) throw new Error("Missing TELEGRAM_BOT_TOKEN");
+			try {
+				const res = await fetch(
+					`https://api.telegram.org/bot${token}/getMe`,
+				);
+				if (!res.ok) {
+					console.error("Invalid Telegram bot token.");
+					process.exit(1);
+				}
+				const data = (await res.json()) as {
+					ok: boolean;
+					result?: { username: string };
+				};
+				if (data.ok && data.result) {
+					p.log.success(`Connected as @${data.result.username}`);
+				}
+			} catch {
+				console.error("Failed to validate token: network error.");
+				process.exit(1);
+			}
+			break;
+		}
+	}
+}
+
+function checkNotRunning(): void {
+	const { existsSync, readFileSync } = require("node:fs");
+	const { join } = require("node:path");
+	const { homedir } = require("node:os");
+	const pidFile = join(homedir(), ".bae", "bae.pid");
+	if (!existsSync(pidFile)) return;
+	const raw = readFileSync(pidFile, "utf-8").trim();
+	const pid = Number.parseInt(raw.split(":")[0] ?? "", 10);
+	if (Number.isNaN(pid)) return;
+	try {
+		process.kill(pid, 0);
+		console.error(
+			`Bae is running (PID ${pid}). Stop it first with \`bae stop\`.`,
+		);
+		process.exit(1);
+	} catch {
+		// Not running
+	}
+}

@@ -41,6 +41,12 @@ switch (command) {
 	case "init":
 		await init();
 		break;
+	case "workspace":
+		await workspace();
+		break;
+	case "channel":
+		await channel();
+		break;
 	case "--version":
 	case "-v":
 		console.log(`bae ${VERSION}`);
@@ -61,11 +67,21 @@ function printHelp() {
   bae — Bridge your messaging apps to CLI coding agents
 
   Usage:
-    bae init         Guided setup wizard
-    bae start [-d]   Start Bae (use -d for background mode)
-    bae stop         Stop running Bae instance
-    bae status       Show running/stopped
-    bae logs         Tail daemon log file
+    bae init                      Guided setup wizard
+    bae start [-d]                Start Bae (use -d for background mode)
+    bae stop                      Stop running Bae instance
+    bae status                    Show running/stopped
+
+    bae workspace list            List workspaces
+    bae workspace add <slug>      Add a workspace
+    bae workspace remove <slug>   Remove a workspace
+    bae workspace set-executor    Change workspace executor
+
+    bae channel list              List channels
+    bae channel add <workspace>   Add a channel to a workspace
+    bae channel remove <id>       Remove a channel
+
+    bae logs                      Tail daemon log file
 
   Options:
     --version        Show version
@@ -82,9 +98,6 @@ function logs() {
 	process.on("SIGINT", () => tail.kill());
 }
 
-/**
- * Check if a process with given PID is alive.
- */
 function isProcessAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -114,22 +127,14 @@ async function start() {
 		console.error(`Bae is already running (PID ${existing.pid}).`);
 		process.exit(1);
 	}
-	// Clean stale PID
 	if (existing !== null) {
 		unlinkSync(PID_FILE);
 	}
 
-	// Load env from ~/.bae/.env
+	// Load global config (BAE_PORT only)
 	loadEnvFile(ENV_FILE);
 
-	// Validate required config
-	const botToken = process.env.TELEGRAM_BOT_TOKEN;
-	if (!botToken) {
-		console.error(
-			"TELEGRAM_BOT_TOKEN is not set. Run `bae init` to configure, or set it in ~/.bae/.env",
-		);
-		process.exit(1);
-	}
+	const port = Number(process.env.BAE_PORT) || 3456;
 
 	// Check agent binary exists
 	try {
@@ -141,28 +146,9 @@ async function start() {
 		process.exit(1);
 	}
 
-	const allowedUsersRaw = process.env.BAE_ALLOWED_USERS ?? "";
-	const allowedUsers = allowedUsersRaw
-		.split(",")
-		.map((s) => s.trim())
-		.filter(Boolean);
-
-	if (allowedUsers.length === 0) {
-		console.error(
-			"BAE_ALLOWED_USERS is empty. At least one user ID is required for security.\n" +
-				"Run `bae init` to configure, or set BAE_ALLOWED_USERS in ~/.bae/.env",
-		);
-		process.exit(1);
-	}
-
-	const cwd = process.env.BAE_CWD || join(homedir(), "baesment");
-	const port = Number(process.env.BAE_PORT) || 3456;
-
-	// Ensure directories exist
 	mkdirSync(BAE_DIR, { recursive: true, mode: 0o700 });
-	mkdirSync(cwd, { recursive: true });
 
-	// Daemon mode: re-exec self detached
+	// Daemon mode
 	if (daemon) {
 		const logPath = join(BAE_DIR, "bae.log");
 		const logFd = openSync(logPath, "a");
@@ -178,8 +164,6 @@ async function start() {
 		);
 
 		child.unref();
-
-		// Wait briefly to confirm child didn't crash immediately
 		await new Promise((resolve) => setTimeout(resolve, 500));
 
 		if (child.exitCode !== null) {
@@ -191,34 +175,96 @@ async function start() {
 		process.exit(0);
 	}
 
-	// Daemon child ignores SIGHUP so it survives terminal close
 	if (isDaemonChild) {
 		process.on("SIGHUP", () => {});
 	}
 
-	// Initialize components
+	// Initialize store and load channels
+	const { Store } = await import("./session/store.ts");
+	const { readChannelCredentials } = await import("./credentials.ts");
 	const { createBridge } = await import("./bridge.ts");
 	const { createBot } = await import("./bot.ts");
 	const { startServer } = await import("./server.ts");
 
-	const bridge = await createBridge({ cwd, allowedUsers });
+	const store = new Store();
+	await store.waitReady();
 
-	const bot = createBot(botToken, (thread, message) =>
-		bridge.handleMessage(thread, message),
+	const channels = store.listChannels();
+	if (channels.length === 0) {
+		console.error(
+			"No channels configured. Run `bae init` or `bae workspace add` + `bae channel add`.",
+		);
+		process.exit(1);
+	}
+
+	const bridge = await createBridge({ store });
+
+	// Boot all channels in parallel (tokens passed directly — no env var race)
+	type BotHandleType = Awaited<ReturnType<typeof createBot>>;
+	const botResults = await Promise.allSettled(
+		channels.map(async (channel) => {
+			const creds = readChannelCredentials(channel.id);
+			if (Object.keys(creds).length === 0) {
+				console.warn(
+					`[bae] Skipping channel ${channel.label ?? channel.id}: no credentials`,
+				);
+				return null;
+			}
+
+			const ws = store.getWorkspace(channel.workspaceId);
+			if (!ws) {
+				console.warn(
+					`[bae] Skipping channel ${channel.id}: workspace "${channel.workspaceId}" not found`,
+				);
+				return null;
+			}
+
+			// Ensure workspace directory exists
+			mkdirSync(ws.path, { recursive: true });
+
+			const bot = createBot({
+				platform: channel.platform,
+				credentials: creds,
+				channelId: channel.id,
+				onMessage: (thread, message) =>
+					bridge.handleMessage(thread, message, channel.id),
+			});
+
+			await bot.start();
+			console.log(
+				`[bae] Channel ${channel.label ?? channel.id} (${channel.platform}) → ${ws.path}`,
+			);
+			return bot;
+		}),
 	);
 
-	await startServer(port);
-	await bot.start();
+	const bots: BotHandleType[] = [];
+	for (const r of botResults) {
+		if (r.status === "fulfilled" && r.value) {
+			bots.push(r.value);
+		} else if (r.status === "rejected") {
+			console.warn(`[bae] Channel failed to start: ${r.reason}`);
+		}
+	}
 
-	// Write PID:PORT only after successful startup
+	if (bots.length === 0) {
+		console.error("No channels started successfully. Check credentials.");
+		process.exit(1);
+	}
+
+	await startServer(port);
+
 	writeFileSync(PID_FILE, `${process.pid}:${port}`, { mode: 0o600 });
 
-	console.log(`[bae] Bae running on port ${port}`);
+	const workspaces = store.listWorkspaces();
+	console.log(
+		`[bae] Running — ${workspaces.length} workspace(s), ${bots.length} channel(s), port ${port}`,
+	);
 
-	// Graceful shutdown
 	async function shutdown() {
+		console.log("[bae] Shutting down...");
+		await Promise.allSettled(bots.map((b) => b.stop()));
 		await bridge.shutdown();
-		bot.stop();
 		try {
 			unlinkSync(PID_FILE);
 		} catch {}
@@ -246,7 +292,6 @@ function stop() {
 
 	process.kill(pid, "SIGTERM");
 
-	// Wait up to 5s for exit
 	let waited = 0;
 	const interval = setInterval(() => {
 		waited += 100;
@@ -282,7 +327,6 @@ async function status() {
 		process.exit(1);
 	}
 
-	// Check health endpoint
 	try {
 		const res = await fetch(`http://127.0.0.1:${info.port}/health`);
 		if (res.ok) {
@@ -298,4 +342,28 @@ async function status() {
 async function init() {
 	const { runInit } = await import("./cli/init.ts");
 	await runInit(args.slice(1));
+}
+
+async function workspace() {
+	const { Store } = await import("./session/store.ts");
+	const { workspaceCommand } = await import("./cli/workspace.ts");
+	const store = new Store();
+	await store.waitReady();
+	try {
+		await workspaceCommand(args.slice(1), store);
+	} finally {
+		store.close();
+	}
+}
+
+async function channel() {
+	const { Store } = await import("./session/store.ts");
+	const { channelCommand } = await import("./cli/channel.ts");
+	const store = new Store();
+	await store.waitReady();
+	try {
+		await channelCommand(args.slice(1), store);
+	} finally {
+		store.close();
+	}
 }
