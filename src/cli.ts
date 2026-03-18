@@ -20,7 +20,21 @@ const PID_FILE = join(BAE_DIR, "bae.pid");
 const ENV_FILE = join(BAE_DIR, ".env");
 const LOG_FILE = join(BAE_DIR, "bae.log");
 declare const __VERSION__: string;
-const VERSION = typeof __VERSION__ !== "undefined" ? __VERSION__ : "0.1.0";
+// __VERSION__ is injected by tsup at build time. When running from source
+// (bun src/cli.ts), fall back to reading package.json.
+const VERSION =
+	typeof __VERSION__ !== "undefined"
+		? __VERSION__
+		: (() => {
+				try {
+					const pkg = JSON.parse(
+						readFileSync(join(import.meta.dir, "..", "package.json"), "utf-8"),
+					);
+					return pkg.version ?? "0.0.0";
+				} catch {
+					return "0.0.0";
+				}
+			})();
 
 const args = process.argv.slice(2);
 const command = args[0];

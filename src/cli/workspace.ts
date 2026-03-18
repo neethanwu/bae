@@ -50,11 +50,25 @@ function listWorkspaces(store: Store): void {
 		);
 		return;
 	}
-	console.log("\nWorkspaces:\n");
-	for (const ws of workspaces) {
+
+	// Calculate column widths for alignment
+	const rows = workspaces.map((ws) => {
 		const channels = store.getChannelsByWorkspace(ws.id);
+		return {
+			id: ws.id,
+			path: ws.path,
+			executor: ws.executor,
+			channels: `${channels.length} channel${channels.length !== 1 ? "s" : ""}`,
+		};
+	});
+
+	const idWidth = Math.max(...rows.map((r) => r.id.length));
+	const pathWidth = Math.max(...rows.map((r) => r.path.length));
+
+	console.log();
+	for (const r of rows) {
 		console.log(
-			`  ${ws.id}  ${ws.name}  ${ws.path}  executor=${ws.executor}  channels=${channels.length}`,
+			`  ${r.id.padEnd(idWidth)}  ${r.path.padEnd(pathWidth)}  ${r.executor}  ${r.channels}`,
 		);
 	}
 	console.log();

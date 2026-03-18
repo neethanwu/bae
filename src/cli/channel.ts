@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import {
 	deleteChannelCredentials,
+	readChannelCredentials,
 	writeChannelCredentials,
 } from "../credentials.ts";
 import type { Store } from "../session/store.ts";
@@ -44,10 +45,24 @@ function listChannels(args: string[], store: Store): void {
 		return;
 	}
 
-	console.log("\nChannels:\n");
-	for (const ch of channels) {
+	// Calculate column widths for alignment
+	const rows = channels.map((ch) => ({
+		id: ch.id,
+		workspace: ch.workspaceId,
+		platform: ch.platform,
+		label: ch.label ?? "-",
+		users: ch.allowedUsers.join(", "),
+	}));
+
+	const idWidth = Math.max(...rows.map((r) => r.id.length));
+	const wsWidth = Math.max(...rows.map((r) => r.workspace.length));
+	const platWidth = Math.max(...rows.map((r) => r.platform.length));
+	const labelWidth = Math.max(...rows.map((r) => r.label.length));
+
+	console.log();
+	for (const r of rows) {
 		console.log(
-			`  ${ch.id}  workspace=${ch.workspaceId}  platform=${ch.platform}  label=${ch.label ?? "(none)"}  users=${ch.allowedUsers.join(",")}`,
+			`  ${r.id.padEnd(idWidth)}  ${r.workspace.padEnd(wsWidth)}  ${r.platform.padEnd(platWidth)}  ${r.label.padEnd(labelWidth)}  users: ${r.users}`,
 		);
 	}
 	console.log();
@@ -99,8 +114,11 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	// Prompt for platform-specific credentials
 	const creds = await promptCredentials(platform);
 
-	// Validate credentials
+	// Validate credentials against platform API
 	await validateCredentials(platform, creds);
+
+	// Check for duplicate bot token across all channels
+	await checkDuplicateCredentials(platform, creds, store);
 
 	// Prompt for allowed users (required)
 	const userIds = await p.text({
@@ -180,6 +198,34 @@ async function removeChannel(args: string[], store: Store): Promise<void> {
 	deleteChannelCredentials(channelId);
 	store.deleteChannel(channelId);
 	console.log(`Channel "${channelId}" deleted.`);
+}
+
+/**
+ * Check if the same bot token is already used by another channel.
+ * Prevents accidentally binding the same bot (e.g., Amy) to two workspaces.
+ */
+async function checkDuplicateCredentials(
+	platform: Platform,
+	creds: Record<string, string>,
+	store: Store,
+): Promise<void> {
+	if (platform !== "telegram") return;
+
+	const newToken = creds.TELEGRAM_BOT_TOKEN;
+	if (!newToken) return;
+
+	const allChannels = store.listChannels();
+	for (const ch of allChannels) {
+		if (ch.platform !== "telegram") continue;
+		const existingCreds = readChannelCredentials(ch.id);
+		if (existingCreds.TELEGRAM_BOT_TOKEN === newToken) {
+			console.error(
+				`This bot token is already used by channel "${ch.label ?? ch.id}" (workspace: ${ch.workspaceId}).`,
+			);
+			console.error("Each Telegram bot can only be bound to one workspace.");
+			process.exit(1);
+		}
+	}
 }
 
 async function promptCredentials(
