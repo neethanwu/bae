@@ -58,7 +58,8 @@ Your Phone                     Your Machine
 
 - **Node.js 20+** — runtime for the bridge
 - **Claude Code** (or another supported agent) — installed and authenticated
-- **Telegram Bot Token** — create one via [@BotFather](https://t.me/BotFather)
+- **Telegram Bot Token** — create one via [@BotFather](https://t.me/BotFather), or
+- **Slack App** — create one from the provided [manifest](slack-manifest.json)
 
 ## Install
 
@@ -75,9 +76,10 @@ bae init
 ```
 
 This walks you through:
-- Telegram bot token (validated against Telegram API)
+- Platform selection (Telegram or Slack)
+- Platform credentials (bot token for Telegram, bot + app tokens for Slack)
 - Workspace directory (default: `~/baesment`)
-- Allowed Telegram user IDs (for access control)
+- Allowed user IDs (for access control)
 
 Config is stored in `~/.bae/` — credentials in per-channel files, workspace/channel config in SQLite.
 
@@ -100,7 +102,17 @@ bae logs
 bae stop
 ```
 
-Once running, message your bot on Telegram. Send `/new` to start a fresh agent session.
+Once running, message your bot on Telegram or Slack. Send `/new` to start a fresh agent session.
+
+## Slack Setup
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From a manifest
+2. Paste the contents of [`slack-manifest.json`](slack-manifest.json)
+3. Generate an App-Level Token with `connections:write` scope
+4. Install the app to your workspace
+5. Run `bae init` and select Slack, or `bae channel add <workspace> --platform slack`
+
+Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 
 ## Multi-Workspace
 
@@ -126,7 +138,7 @@ bae workspace set-executor research codex
 
 ## Status
 
-Phase 2 complete — Telegram bridge with session continuity, streaming, steering, daemon mode, multi-workspace support, and CLI management.
+Phase 3 — Telegram + Slack support, multi-workspace, session continuity, streaming, steering, daemon mode, and CLI management.
 
 ## Changelog
 
