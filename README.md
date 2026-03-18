@@ -75,11 +75,11 @@ bae init
 ```
 
 This walks you through:
-- Telegram bot token
+- Telegram bot token (validated against Telegram API)
 - Workspace directory (default: `~/baesment`)
 - Allowed Telegram user IDs (for access control)
 
-Config is saved to `~/.bae/.env`.
+Config is stored in `~/.bae/` — credentials in per-channel files, workspace/channel config in SQLite.
 
 ## Usage
 
@@ -102,13 +102,31 @@ bae stop
 
 Once running, message your bot on Telegram. Send `/new` to start a fresh agent session.
 
-## Workspace
+## Multi-Workspace
 
-Bae runs your agent inside the configured workspace directory (`~/baesment` by default). The agent has full access to that directory — file editing, bash execution, everything it can do locally.
+Bae supports multiple workspaces, each with its own agent identity, folder, and communication channels.
+
+```bash
+# Add a workspace
+bae workspace add research --name "Research" --path ~/research
+
+# Bind a Telegram bot to it
+bae channel add research --platform telegram
+
+# List workspaces and channels
+bae workspace list
+bae channel list
+```
+
+Each workspace is a folder on disk — the agent's working directory. Everything in the folder (CLAUDE.md, git history, project files) constitutes the agent's context. You can swap the underlying agent (Claude Code, Codex, etc.) without losing context:
+
+```bash
+bae workspace set-executor research codex
+```
 
 ## Status
 
-Phase 1 complete — Telegram bridge with session continuity, streaming responses, daemon mode, and CLI.
+Phase 2 complete — Telegram bridge with session continuity, streaming, steering, daemon mode, multi-workspace support, and CLI management.
 
 ## Changelog
 
