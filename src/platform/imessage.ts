@@ -1,70 +1,95 @@
 /**
- * iMessage platform adapter (local mode).
+ * iMessage platform adapter (direct SDK, local mode).
  *
- * Uses the Chat SDK's chat-adapter-imessage in local mode:
- * - Reads incoming messages by polling ~/Library/Messages/chat.db (SQLite, read-only)
- * - Sends responses via AppleScript (osascript → Messages.app)
- * - macOS only, requires Full Disk Access for the terminal
- * - No API keys, no hosted services — fully local
- * - Plain text only (no Markdown formatting, no streaming)
+ * Uses @photon-ai/imessage-kit directly (not the Chat SDK community adapter)
+ * to support self-messaging ("Note to Self") for personal use.
+ *
+ * - Polls ~/Library/Messages/chat.db with excludeOwnMessages: false
+ * - Sends via AppleScript (osascript → Messages.app)
+ * - Agent responses prefixed with "Bae: " for loop prevention
+ * - macOS only, requires Full Disk Access
+ * - Plain text only (Markdown stripped)
  */
 
-import type { MessageData, Thread } from "chat";
-import { Chat } from "chat";
-import { createiMessageAdapter } from "chat-adapter-imessage";
-import { createRetryState } from "../state.ts";
+import { execSync } from "node:child_process";
+import { IMessageSDK } from "@photon-ai/imessage-kit";
 import type { ChannelHandle, PlatformConfig, PlatformThread } from "./types.ts";
 
 export const IMESSAGE_CONFIG: PlatformConfig = {
-	// iMessage has no practical message limit (~20k chars)
 	splitSoft: 15000,
 	splitHard: 18000,
 };
 
-/**
- * Wrap a Chat SDK Thread for iMessage.
- * Plain text only — strips Markdown from agent output.
- * No streaming — collects all chunks and posts once.
- */
-export function imessageThread(thread: Thread): PlatformThread {
-	return {
-		id: String(thread.id),
-		async post(text: string) {
-			await thread.post(stripMarkdown(text));
-		},
-		async postStream(chunks: AsyncIterable<string>) {
-			// iMessage does not support streaming — collect and post once
-			let full = "";
-			for await (const chunk of chunks) full += chunk;
-			if (full) await thread.post(stripMarkdown(full));
-		},
-		async startTyping() {
-			// iMessage has no typing indicator API in local mode — no-op
-		},
-	};
-}
+const BAE_PREFIX = "Bae: ";
 
 /**
  * Strip Markdown formatting for plain-text iMessage output.
  */
 export function stripMarkdown(text: string): string {
-	return (
-		text
-			// Remove bold markers
-			.replace(/\*\*(.+?)\*\*/g, "$1")
-			.replace(/__(.+?)__/g, "$1")
-			// Remove italic markers (single * or _)
-			.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1")
-			// Remove strikethrough
-			.replace(/~~(.+?)~~/g, "$1")
-			// Convert links: [text](url) → text (url)
-			.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
-			// Remove header markers
-			.replace(/^#{1,6}\s+/gm, "")
-	);
+	return text
+		.replace(/\*\*(.+?)\*\*/g, "$1")
+		.replace(/__(.+?)__/g, "$1")
+		.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1")
+		.replace(/~~(.+?)~~/g, "$1")
+		.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+		.replace(/^#{1,6}\s+/gm, "");
 }
 
-// --- iMessage Channel Adapter ---
+/**
+ * Ensure Messages.app is running (required for AppleScript sending).
+ * Launches it if not already open.
+ */
+async function ensureMessagesApp(): Promise<void> {
+	try {
+		// Check if Messages is running
+		const result = execSync(
+			'osascript -e \'tell application "System Events" to (name of processes) contains "Messages"\'',
+			{ encoding: "utf-8", timeout: 5000 },
+		).trim();
+		if (result !== "true") {
+			console.log("[bae:imessage] Launching Messages.app...");
+			execSync('open -a "Messages"', { timeout: 5000 });
+			// Wait for it to start
+			await new Promise((r) => setTimeout(r, 2000));
+		}
+	} catch {
+		// Best effort — the SDK will retry or error with a clear message
+	}
+}
+
+/**
+ * Create a PlatformThread for iMessage.
+ * All agent responses are prefixed with "Bae: " for loop prevention
+ * and visual distinction in self-chat conversations.
+ */
+function imessageThread(sdk: IMessageSDK, chatId: string): PlatformThread {
+	return {
+		id: chatId,
+
+		async post(text: string) {
+			const prefixed = `${BAE_PREFIX}${stripMarkdown(text)}`;
+			await ensureMessagesApp();
+			await sdk.send(chatId, prefixed);
+		},
+
+		async postStream(chunks: AsyncIterable<string>) {
+			// No streaming — collect and post once
+			let full = "";
+			for await (const chunk of chunks) full += chunk;
+			if (full) {
+				const prefixed = `${BAE_PREFIX}${stripMarkdown(full)}`;
+				await ensureMessagesApp();
+				await sdk.send(chatId, prefixed);
+			}
+		},
+
+		async startTyping() {
+			// iMessage has no typing indicator — no-op
+		},
+	};
+}
+
+// --- Channel Adapter ---
 
 export interface CreateIMessageChannelOptions {
 	channelId: string;
@@ -78,62 +103,65 @@ export interface CreateIMessageChannelOptions {
 export function createIMessageChannel(
 	options: CreateIMessageChannelOptions,
 ): ChannelHandle {
-	const adapter = createiMessageAdapter({ local: true });
-	const abortController = new AbortController();
-
-	// The iMessage adapter (v0.1.1) targets Chat SDK ^4.14.0 but BAE uses 4.20.2.
-	// Some newer interface methods may be missing — cast to avoid type errors.
-	// The Chat SDK handles missing methods gracefully at runtime.
-	const bot = new Chat({
-		userName: "bae",
-		// biome-ignore lint/suspicious/noExplicitAny: adapter version compat shim
-		adapters: { imessage: adapter as any },
-		state: createRetryState(),
+	const sdk = new IMessageSDK({
+		watcher: {
+			excludeOwnMessages: false, // Enable self-messaging
+			pollInterval: 2000,
+		},
 	});
 
-	const handleMessage = async (chatThread: Thread, message: MessageData) => {
-		const thread = imessageThread(chatThread);
-		const userId = message.author?.userId ?? "";
-		const text = message.text ?? "";
-		await options.onMessage(thread, userId, text);
-	};
+	// Message dedup — self-chat produces duplicate entries (sent + iCloud synced)
+	// iCloud sync creates a DIFFERENT message ID, so we dedup on content + chatId
+	const seen = new Map<string, number>();
+	const DEDUP_TTL_MS = 10_000; // 10s window for sync duplicates
 
-	bot.onDirectMessage(async (thread, message) => {
-		await thread.subscribe();
-		await handleMessage(thread, message);
-	});
-
-	bot.onNewMessage(/./, async (thread, message) => {
-		await thread.subscribe();
-		await handleMessage(thread, message);
-	});
-
-	bot.onSubscribedMessage(async (thread, message) => {
-		await handleMessage(thread, message);
-	});
+	function isDuplicate(message: {
+		id: string;
+		text: string | null;
+		chatId: string;
+	}): boolean {
+		const now = Date.now();
+		// Prune old entries
+		for (const [k, ts] of seen) {
+			if (now - ts > DEDUP_TTL_MS) seen.delete(k);
+		}
+		// Key on both message ID (exact dedup) and content+chat (sync dedup)
+		const contentKey = `${message.chatId}:${message.text}`;
+		if (seen.has(message.id) || seen.has(contentKey)) return true;
+		seen.set(message.id, now);
+		seen.set(contentKey, now);
+		return false;
+	}
 
 	return {
 		start: async () => {
-			await bot.initialize();
-			// Start gateway listener (SQLite polling) — runs until aborted
-			// API: startGatewayListener(options, durationMs?, abortSignal?)
-			adapter
-				.startGatewayListener(
-					{},
-					Number.MAX_SAFE_INTEGER,
-					abortController.signal,
-				)
-				.catch((err: unknown) => {
-					const name = err instanceof Error ? err.name : "";
-					if (name !== "AbortError") {
-						console.error("[bae:imessage] Gateway listener error:", err);
-					}
-				});
-			console.log("[bae:imessage] Listening for messages (polling chat.db)");
+			// Ensure Messages.app is running at startup
+			await ensureMessagesApp();
+
+			await sdk.startWatching({
+				onMessage: async (message) => {
+					// Loop prevention: skip agent responses (they start with "Bae: ")
+					if (message.text?.startsWith(BAE_PREFIX)) return;
+
+					// Skip messages without text
+					if (!message.text) return;
+
+					// Dedup: self-chat messages appear twice (sent + iCloud sync)
+					if (isDuplicate(message)) return;
+
+					const thread = imessageThread(sdk, message.chatId);
+					await options.onMessage(thread, message.sender, message.text);
+				},
+				onError: (error) => {
+					console.error("[bae:imessage] Watcher error:", error);
+				},
+			});
+			console.log(
+				"[bae:imessage] Listening for messages (self-messaging enabled)",
+			);
 		},
 		stop: async () => {
-			abortController.abort();
-			await bot.shutdown();
+			sdk.stopWatching();
 		},
 	};
 }

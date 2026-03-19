@@ -59,11 +59,11 @@
     "@chat-adapter/telegram": "^4.20.2",
     "@clack/prompts": "^1.1.0",
     "@hono/node-server": "^1.19.11",
+    "@photon-ai/imessage-kit": "^2.1.2",
     "@slack/socket-mode": "^2.0.6",
     "@slack/web-api": "^7.15.0",
     "better-sqlite3": "^12.6.2",
     "chat": "^4.20.2",
-    "chat-adapter-imessage": "^0.1.1",
     "hono": "^4.12.5",
     "nanoid": "^5.1.7"
   }
