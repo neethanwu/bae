@@ -234,7 +234,8 @@ async function start() {
 	const channelResults = await Promise.allSettled(
 		channels.map(async (channel) => {
 			const creds = readChannelCredentials(channel.id);
-			if (Object.keys(creds).length === 0) {
+			// iMessage local mode has no credentials — skip check for it
+			if (Object.keys(creds).length === 0 && channel.platform !== "imessage") {
 				console.warn(
 					`[bae] Skipping channel ${channel.label ?? channel.id}: no credentials`,
 				);
