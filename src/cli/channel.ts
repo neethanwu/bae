@@ -320,8 +320,8 @@ async function promptCredentials(
 			p.log.warn(
 				"Note: Full Disk Access grants read access to ALL your messages, not just conversations with this channel.",
 			);
-			// No credentials needed for local mode
-			return {};
+			// No API tokens needed — write a marker so startup doesn't skip this channel
+			return { BAE_LOCAL_MODE: "true" };
 		}
 	}
 }

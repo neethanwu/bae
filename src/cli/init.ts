@@ -329,7 +329,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 				process.exit(1);
 			}
 
-			credentials = {};
+			credentials = { BAE_LOCAL_MODE: "true" };
 			displayName = "iMessage";
 		}
 
