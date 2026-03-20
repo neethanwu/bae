@@ -166,16 +166,32 @@ export async function runInit(argv: string[] = []): Promise<void> {
 
 		const workspaces = store.listWorkspaces();
 		if (workspaces.length > 0) {
+			// Check if there are unconfigured platforms across any workspace
+			const allPlatforms = ["telegram", "slack"];
+			if (process.platform === "darwin") allPlatforms.push("imessage");
+
+			const hasAvailableChannel = workspaces.some((ws) => {
+				const existing = new Set<string>(
+					store.getChannelsByWorkspace(ws.id).map((ch) => ch.platform),
+				);
+				return allPlatforms.some((p) => !existing.has(p));
+			});
+
+			const options: { value: string; label: string }[] = [];
+			if (hasAvailableChannel) {
+				options.push({
+					value: "add-channel",
+					label: "Add another channel to an existing workspace",
+				});
+			}
+			options.push(
+				{ value: "reconfigure", label: "Start fresh (reconfigure)" },
+				{ value: "exit", label: "Nothing, I'm all set" },
+			);
+
 			const action = await p.select({
 				message: `Found ${workspaces.length} workspace(s). What would you like to do?`,
-				options: [
-					{
-						value: "add-channel",
-						label: "Add another channel to an existing workspace",
-					},
-					{ value: "reconfigure", label: "Start fresh (reconfigure)" },
-					{ value: "exit", label: "Nothing, I'm all set" },
-				],
+				options,
 			});
 
 			if (p.isCancel(action) || action === "exit") {
