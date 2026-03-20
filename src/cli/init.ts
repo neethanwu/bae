@@ -282,10 +282,17 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			const manifest = JSON.stringify(manifestObj, null, 2);
 
 			// Try to copy manifest to clipboard
+			let copied = false;
 			try {
 				if (process.platform === "darwin") {
 					execSync("pbcopy", { input: manifest });
-					p.log.success("Slack app manifest copied to clipboard!");
+					copied = true;
+				} else if (process.platform === "win32") {
+					execSync("clip", { input: manifest });
+					copied = true;
+				} else {
+					execSync("xclip -selection clipboard", { input: manifest });
+					copied = true;
 				}
 			} catch {
 				// Clipboard not available
@@ -296,7 +303,12 @@ export async function runInit(argv: string[] = []): Promise<void> {
 					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
 					"  2. Switch to JSON tab and paste the manifest below",
 			);
-			p.note(manifest, "Slack App Manifest (paste this)");
+			p.note(
+				manifest,
+				copied
+					? "Slack App Manifest (already in your clipboard!)"
+					: "Slack App Manifest (copy and paste this)",
+			);
 
 			const created = await p.confirm({
 				message:

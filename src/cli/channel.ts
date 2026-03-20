@@ -399,14 +399,18 @@ async function promptCredentials(
 			const manifest = JSON.stringify(manifestObj, null, 2);
 
 			// Try to copy manifest to clipboard
+			let copied = false;
 			try {
-				const { execSync } = await import("node:child_process");
+				const { execSync: exec } = await import("node:child_process");
 				if (process.platform === "darwin") {
-					execSync("pbcopy", { input: manifest });
-					p.log.success("Slack app manifest copied to clipboard!");
-				} else if (process.platform === "linux") {
-					execSync("xclip -selection clipboard", { input: manifest });
-					p.log.success("Slack app manifest copied to clipboard!");
+					exec("pbcopy", { input: manifest });
+					copied = true;
+				} else if (process.platform === "win32") {
+					exec("clip", { input: manifest });
+					copied = true;
+				} else {
+					exec("xclip -selection clipboard", { input: manifest });
+					copied = true;
 				}
 			} catch {
 				// Clipboard not available — user will copy manually
@@ -417,7 +421,12 @@ async function promptCredentials(
 					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
 					"  2. Switch to JSON tab and paste the manifest below",
 			);
-			p.note(manifest, "Slack App Manifest (paste this)");
+			p.note(
+				manifest,
+				copied
+					? "Slack App Manifest (already in your clipboard!)"
+					: "Slack App Manifest (copy and paste this)",
+			);
 
 			const created = await p.confirm({
 				message:
