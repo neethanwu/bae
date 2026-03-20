@@ -369,14 +369,74 @@ async function promptCredentials(
 			return { TELEGRAM_BOT_TOKEN: token };
 		}
 		case "slack": {
+			const manifest = JSON.stringify(
+				{
+					display_information: {
+						name: "Bae",
+						description: "Bridge to your local coding agent",
+					},
+					features: {
+						bot_user: { display_name: "Bae", always_online: true },
+						slash_commands: [
+							{ command: "/new", description: "Start a new session" },
+						],
+					},
+					oauth_config: {
+						scopes: {
+							bot: [
+								"chat:write",
+								"im:history",
+								"im:read",
+								"im:write",
+								"commands",
+							],
+						},
+					},
+					settings: {
+						event_subscriptions: { bot_events: ["message.im"] },
+						socket_mode_enabled: true,
+					},
+				},
+				null,
+				2,
+			);
+
+			// Try to copy manifest to clipboard
+			try {
+				const { execSync } = await import("node:child_process");
+				if (process.platform === "darwin") {
+					execSync("pbcopy", { input: manifest });
+					p.log.success("Slack app manifest copied to clipboard!");
+				} else if (process.platform === "linux") {
+					execSync("xclip -selection clipboard", { input: manifest });
+					p.log.success("Slack app manifest copied to clipboard!");
+				}
+			} catch {
+				// Clipboard not available — user will copy manually
+			}
+
 			p.log.info(
 				"To create a Slack app:\n" +
 					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
-					"  2. Paste the manifest from slack-manifest.json in the BAE repo\n" +
-					"  3. Under Basic Information → App-Level Tokens, generate one with connections:write\n" +
-					"  4. Under Install App, install to your workspace\n" +
-					"  5. Copy both tokens below",
+					"  2. Switch to JSON tab and paste this manifest:\n\n" +
+					manifest,
 			);
+
+			const created = await p.confirm({
+				message:
+					"Have you created the Slack app and installed it to your workspace?",
+			});
+			if (p.isCancel(created) || !created) {
+				p.cancel("Cancelled. Create the app first, then try again.");
+				process.exit(0);
+			}
+
+			p.log.info(
+				"Now grab your tokens:\n" +
+					"  1. Under Basic Information → App-Level Tokens, generate one with connections:write scope\n" +
+					"  2. Under Install App → Bot User OAuth Token",
+			);
+
 			const botToken = await p.text({
 				message: "Bot OAuth token (xoxb-...):",
 				validate: (val) => {
