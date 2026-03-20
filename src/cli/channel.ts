@@ -166,16 +166,34 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 		}
 		platform = flags.platform as Platform;
 	} else {
-		const platformOptions: { value: string; label: string }[] = [
+		// Filter out platforms already added to this workspace
+		const existingChannels = store.getChannelsByWorkspace(workspaceSlug);
+		const existingPlatforms = new Set<string>(
+			existingChannels.map((ch) => ch.platform),
+		);
+
+		const allPlatforms: { value: string; label: string }[] = [
 			{ value: "telegram", label: "Telegram" },
 			{ value: "slack", label: "Slack" },
 		];
 		if (process.platform === "darwin") {
-			platformOptions.push({
+			allPlatforms.push({
 				value: "imessage",
 				label: "iMessage (macOS only)",
 			});
 		}
+
+		const platformOptions = allPlatforms.filter(
+			(p) => !existingPlatforms.has(p.value),
+		);
+
+		if (platformOptions.length === 0) {
+			console.log(
+				"All available platforms are already configured for this workspace.",
+			);
+			return;
+		}
+
 		const platChoice = await p.select({
 			message: "Platform:",
 			options: platformOptions,
