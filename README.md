@@ -40,13 +40,13 @@ Your Phone                     Your Machine
 
 Bae works with any CLI agent that accepts prompts and produces text output. The agent runs on your machine with your local auth — no API keys needed.
 
-| Agent | Status | Notes |
-|-------|--------|-------|
-| [Claude Code](https://docs.anthropic.com/s/claude-code) | **Tested** | Primary backend. Streaming, steering, session resume. |
-| [Codex](https://github.com/openai/codex) | Planned | Will use the same executor interface. |
-| [OpenCode](https://github.com/opencode-ai/opencode) | Planned | ACP protocol support in future. |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Planned | Executor adapter needed. |
-| [Amp](https://ampcode.com/) | Planned | Executor adapter needed. |
+| Agent | Status |
+|-------|--------|
+| [Claude Code](https://docs.anthropic.com/s/claude-code) | **Tested** |
+| [Codex](https://github.com/openai/codex) | Planned |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Planned |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Planned |
+| [Amp](https://ampcode.com/) | Planned |
 
 To use Bae, install at least one agent first. For example:
 
@@ -95,9 +95,9 @@ That's it! Message your bot and start chatting with your agent. Use `bae logs` t
 1. Message [@BotFather](https://t.me/BotFather) on Telegram
 2. Send `/newbot` and follow the prompts
 3. Copy the bot token
-4. Run `bae init`, select Telegram, paste your token
-
-**Find your user ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram — it replies with your numeric user ID.
+4. Open your new bot in Telegram and press **Start** (this lets you find your user ID)
+5. Message [@userinfobot](https://t.me/userinfobot) — it replies with your numeric user ID
+6. Run `bae init`, select Telegram, paste your token and user ID
 
 ### Slack
 
@@ -114,11 +114,18 @@ Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 ### iMessage (macOS only)
 
 1. Open **System Settings → Privacy & Security → Full Disk Access**
-2. Add your terminal app (Terminal, iTerm, Warp, etc.) — this allows Bae to read your Messages database while it's running. **Keep this enabled** as long as you use Bae with iMessage.
+2. Add your terminal app (Terminal, iTerm, Warp, etc.) — this allows Bae to read your Messages database. **Keep this enabled** as long as you use Bae with iMessage.
 3. **Restart your terminal** (required — macOS doesn't apply the permission until restart)
 4. Run `bae init`, select iMessage
 
-No credentials needed. Text yourself ("Note to Self") to chat with your agent. Agent responses are prefixed with `Bae:` so you can tell them apart.
+**How it works:** iMessage runs locally on your Mac — no separate account or phone number needed. You text yourself ("Note to Self") and the agent responds in the same conversation. Agent replies are prefixed with `Bae:` so you can tell them apart.
+
+**What to expect:**
+- Messages appear on both sides of the chat (this is normal for self-chat in iMessage — Apple shows both the sent and received copy)
+- Only works while your Mac is awake and running Bae
+- Plain text only (no formatting, no streaming)
+
+> We're working on a hosted version that will give Bae its own iMessage identity — no self-chat, no double bubbles, works from any device. Stay tuned.
 
 ## Usage
 
