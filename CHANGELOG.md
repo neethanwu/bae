@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-03-19
+
+### Added
+- Slack platform support via Socket Mode (no tunnel needed)
+  - Native streaming API (`chat.startStream`/`appendStream`/`stopStream`)
+  - `/new` as Slack slash command
+  - Thread replies in DMs for streaming
+  - Message dedup for Socket Mode retries
+  - Slack app manifest (`slack-manifest.json`) for one-click setup
+- iMessage platform support (macOS only, local mode)
+  - Direct `@photon-ai/imessage-kit` SDK (self-messaging enabled)
+  - `Bae:` prefix on agent responses for loop prevention
+  - Auto-launch Messages.app if not running
+  - Auto-open System Settings for Full Disk Access setup
+  - Content-based message dedup for iCloud sync duplicates
+- PlatformAdapter architecture
+  - `PlatformThread` interface (id, post, postStream, startTyping)
+  - `PlatformConfig` for per-platform split thresholds
+  - `ChannelHandle` unified start/stop interface
+  - `src/bot.ts` renamed to `src/channel.ts` (consistent "channel" naming)
+  - Shared formatters extracted to `src/formatter/common.ts`
+- Slack mrkdwn formatter (code-block-safe) for non-streamed messages
+- iMessage `stripMarkdown` for plain-text output
+- Interactive CLI improvements
+  - `bae workspace add` prompts interactively if no flags given
+  - `bae channel add` auto-detects single workspace, platform selection prompt
+  - `--help` for workspace and channel subcommands
+  - Default workspace path to current directory (not `~/baesment`)
+  - "Add another channel?" after `bae init`
+  - iMessage headless init support (`--platform imessage`)
+  - Better error messages with actionable guidance
+  - Channel list grouped by workspace
+  - Platform flag validation (rejects unknown platforms)
+- Auto-update notifications
+  - Checks npm registry every 24 hours (non-blocking)
+  - Notifies once per new version on stderr
+  - Opt-out via `BAE_NO_UPDATE_NOTIFIER` env var
+  - Only runs on `start` and `status` commands (no delay on `--help`)
+- `BAE_LOCAL_MODE=true` credential marker for platforms without API tokens
+
+### Changed
+- Bridge uses `PlatformThread` + `PlatformConfig` instead of Chat SDK `Thread`
+- Commands gain `platform` parameter (`/start` is Telegram-only)
+- `createBot()` renamed to `createChannel()` with `CreateChannelOptions`
+- `BotHandle` renamed to `ChannelHandle`
+- License changed from MIT to Apache-2.0
+
+### Removed
+- `chat-adapter-imessage` dependency (replaced by direct `@photon-ai/imessage-kit`)
+
 ## [0.2.1] - 2026-03-17
 
 ### Added
@@ -89,7 +139,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Factory-based initialization (`createBot`, `createBridge`)
 - Auto-create workspace directory, default `~/baesment`
 
-[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/neethanwu/bae/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/neethanwu/bae/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/neethanwu/bae/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/neethanwu/bae/releases/tag/v0.1.0
