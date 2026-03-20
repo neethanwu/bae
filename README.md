@@ -42,11 +42,11 @@ Bae works with any CLI agent that accepts prompts and produces text output. The 
 
 | Agent | Status |
 |-------|--------|
-| [Claude Code](https://docs.anthropic.com/s/claude-code) | **Tested** |
-| [Codex](https://github.com/openai/codex) | Planned |
-| [OpenCode](https://github.com/opencode-ai/opencode) | Planned |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Planned |
-| [Amp](https://ampcode.com/) | Planned |
+| [Claude Code](https://docs.anthropic.com/s/claude-code) | **Supported** |
+| [Codex](https://github.com/openai/codex) | Testing |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Testing |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Testing |
+| [Amp](https://ampcode.com/) | Testing |
 
 To use Bae, install at least one agent first. For example:
 
