@@ -4,150 +4,167 @@
 
 > Turn any always-on machine into a personal AI agent server, accessible from your messaging apps.
 
+```
+ ██████╗  █████╗ ███████╗
+ ██╔══██╗██╔══██╗██╔════╝
+ ██████╔╝███████║█████╗
+ ██╔══██╗██╔══██║██╔══╝
+ ██████╔╝██║  ██║███████╗
+ ╚═════╝ ╚═╝  ╚═╝╚══════╝
+```
+
 ## What Is Bae?
 
-Bae is a **tunnel** — a thin, opinionated relay that connects your messaging apps (Telegram, Slack, Discord) to CLI-based coding agents (Claude Code, Codex, OpenCode, etc.) running on your machine. The agent is the brain. Bae is the phone line.
-
-**Bae is not** an AI framework, an agent SDK, or an API wrapper. It does not modify, enhance, or intercept the agent's capabilities. Whatever your agent can do locally, you can now do from your phone.
-
-## Why Bae?
-
-You have an always-on machine at home. You have Claude Code installed with a Max subscription. You have Telegram on your phone. Bae connects them:
-
-```
-Your Phone (Telegram)  →  Bae (bridge)  →  Local Agent (on your machine)
-```
-
-- **No API keys needed** — uses your existing agent subscription auth
-- **Full agent power** — file editing, bash execution, code generation, web search
-- **Agent-agnostic** — Claude Code first, extensible to Codex, OpenCode, Gemini CLI, Amp
-- **No tunnel needed** — long polling, no public URL, no signup, no extra processes
-- **Conversation continuity** — messages in the same thread share agent context
-- **Never goes out of date** — when your agent gets new features, Bae gets them for free
-
-## Architecture
+Bae connects your messaging apps to coding agents running on your machine. The agent is the brain. Bae is the phone line.
 
 ```
 Your Phone                     Your Machine
-┌─────────────┐               ┌─────────────────────────────────────────┐
-│             │               │                                         │
-│  Telegram   │◀── polling ──▶│  ┌───────┐       ┌───────────────────┐  │
-│  Slack      │◀── polling ──▶│  │  Bae  │──────▶│  Local Agents     │  │
-│  Discord    │◀── polling ──▶│  │       │◀──────│  Claude Code      │  │
-│             │               │  └───────┘       │  Codex            │  │
-└─────────────┘               │                  │  OpenCode         │  │
-                              │                  │  Amp, etc.        │  │
-                              │                  └───────────────────┘  │
-                              │                                         │
-                              │  Your filesystem, skills, MCP servers   │
-                              └─────────────────────────────────────────┘
+┌─────────────┐               ┌─────────────────────────────────┐
+│  Telegram   │               │                                 │
+│  Slack      │◀── Bae ──────▶│  Claude Code / Codex / OpenCode │
+│  iMessage   │               │                                 │
+└─────────────┘               │  Your files, skills, MCP tools  │
+                              └─────────────────────────────────┘
 ```
 
-## Tech Stack
+**What makes Bae different:**
 
-| Component | Choice | Rationale |
-|-----------|--------|-----------|
-| Language | TypeScript | Type safety for message parsing |
-| Runtime | Node.js 20+ / Bun | Cross-runtime; SQLite via `better-sqlite3` (Node) or `bun:sqlite` (Bun) |
-| HTTP | Hono | Health check + future dashboard API (~14kb) |
-| IM | Vercel Chat SDK | Unified interface for Telegram, Slack, Discord — long polling + webhook |
-| Agent | Subprocess | Agent-agnostic; `--resume` for conversation continuity |
-| Storage | SQLite | Session persistence at `~/.bae/bae.db` via `bun:sqlite` |
+- **No API keys needed** — uses your existing agent subscription (Claude Max, etc.)
+- **Full agent power** — file editing, bash, code generation, web search — everything your agent can do locally
+- **No tunnel or server** — all connections are outbound (long polling, Socket Mode, database polling)
+- **Multi-platform** — Telegram, Slack, and iMessage today. Discord and email coming soon.
+- **Conversation continuity** — messages in the same thread share agent context
+- **Agent-agnostic** — swap between Claude Code, Codex, or any CLI agent without losing project context
 
-## Prerequisites
+## Quick Start
 
-- **Node.js 20+** — runtime for the bridge
-- **Claude Code** (or another supported agent) — installed and authenticated
-- **Telegram Bot Token** — create one via [@BotFather](https://t.me/BotFather), or
-- **Slack App** — create one from the provided [manifest](slack-manifest.json), or
-- **macOS with iMessage** — for iMessage local mode (Full Disk Access required)
-
-## Install
+### 1. Install
 
 ```bash
 npm install -g bae-bridge
 ```
 
-## Setup
+### 2. Make sure your agent is ready
 
-Run the interactive wizard:
+```bash
+claude --version    # Claude Code must be installed and authenticated
+```
+
+### 3. Set up your first channel
 
 ```bash
 bae init
 ```
 
-This walks you through:
-- Platform selection (Telegram, Slack, or iMessage)
-- Platform credentials (bot token for Telegram, bot + app tokens for Slack, none for iMessage)
-- Workspace directory (default: `~/baesment`)
-- Allowed user IDs (for access control)
+The wizard walks you through everything:
+- Choose your platform (Telegram, Slack, or iMessage)
+- Enter your credentials (or none for iMessage)
+- Pick your workspace directory (defaults to your current folder)
+- Set allowed user IDs
 
-Config is stored in `~/.bae/` — credentials in per-channel files, workspace/channel config in SQLite.
+### 4. Start
+
+```bash
+bae start
+```
+
+That's it. Message your bot and start chatting with your agent.
+
+## Platform Setup
+
+### Telegram
+
+1. Message [@BotFather](https://t.me/BotFather) on Telegram
+2. Send `/newbot` and follow the prompts
+3. Copy the bot token
+4. Run `bae init`, select Telegram, paste your token
+
+**Find your user ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram.
+
+### Slack
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**
+2. Paste the contents of [`slack-manifest.json`](slack-manifest.json) from this repo
+3. Under **Basic Information** → **App-Level Tokens**, generate one with `connections:write` scope
+4. Under **Install App**, install to your workspace
+5. Run `bae init`, select Slack, paste both tokens
+
+**Find your user ID:** Click your profile in Slack → **⋯** menu → **Copy member ID**.
+
+Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
+
+### iMessage (macOS only)
+
+1. Open **System Settings → Privacy & Security → Full Disk Access**
+2. Add your terminal app (Terminal, iTerm, Warp, etc.)
+3. **Restart your terminal** (required — won't work without this)
+4. Run `bae init`, select iMessage
+
+No credentials needed — iMessage reads from your local Messages database and sends via AppleScript. Text yourself ("Note to Self") to chat with your agent. Agent responses are prefixed with `Bae:` so you can tell them apart.
 
 ## Usage
 
 ```bash
-# Start in foreground
-bae start
-
-# Start in background (daemon mode)
-bae start -d
-
-# Check if running
-bae status
-
-# View logs (daemon mode)
-bae logs
-
-# Stop the daemon
-bae stop
+bae start          # Start in foreground
+bae start -d       # Start in background (daemon mode)
+bae stop           # Stop the daemon
+bae status         # Check if running
+bae logs           # Tail daemon logs
 ```
 
-Once running, message your bot on Telegram or Slack. Send `/new` to start a fresh agent session.
+### Commands in chat
 
-## Slack Setup
+| Command | What it does |
+|---------|-------------|
+| `/new` | Start a fresh agent session (clears context) |
+| `/start` | Welcome message (Telegram only) |
+| Everything else | Goes directly to your agent |
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From a manifest
-2. Paste the contents of [`slack-manifest.json`](slack-manifest.json)
-3. Generate an App-Level Token with `connections:write` scope
-4. Install the app to your workspace
-5. Run `bae init` and select Slack, or `bae channel add <workspace> --platform slack`
+### Adding more channels
 
-Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
+Already running Telegram? Add Slack too:
 
-## iMessage Setup (macOS only)
+```bash
+bae channel add --platform slack
+```
 
-1. Grant **Full Disk Access** to your terminal: System Settings → Privacy & Security → Full Disk Access
-2. **Restart your terminal** (required after granting FDA)
-3. Run `bae init` and select iMessage, or `bae channel add <workspace> --platform imessage`
-
-iMessage uses local mode — reads from your Messages database and sends via AppleScript. Text yourself ("Note to Self") to chat with your agent. Agent responses are prefixed with `Bae:` for visual distinction.
+Bae auto-detects your workspace. All channels share the same agent and project context.
 
 ## Multi-Workspace
 
-Bae supports multiple workspaces, each with its own agent identity, folder, and communication channels.
+Each workspace is a folder on disk — the agent's working directory. Create separate workspaces for different projects:
 
 ```bash
 # Add a workspace
-bae workspace add research --name "Research" --path ~/research
+bae workspace add research --path ~/research
 
-# Bind a Telegram bot to it
+# Add a channel to it
 bae channel add research --platform telegram
 
-# List workspaces and channels
+# List everything
 bae workspace list
 bae channel list
 ```
 
-Each workspace is a folder on disk — the agent's working directory. Everything in the folder (CLAUDE.md, git history, project files) constitutes the agent's context. You can swap the underlying agent (Claude Code, Codex, etc.) without losing context:
+Everything in the workspace folder (CLAUDE.md, git history, project files) is the agent's context. Swap the agent anytime without losing context:
 
 ```bash
 bae workspace set-executor research codex
 ```
 
+## How It Works
+
+| Platform | Connection | Streaming |
+|----------|-----------|-----------|
+| Telegram | Long polling (Chat SDK) | Edit-in-place |
+| Slack | Socket Mode (WebSocket) | Native streaming API |
+| iMessage | SQLite database polling | No streaming (plain text) |
+
+All connections are **outbound** — Bae never needs a public URL, tunnel, or webhook endpoint. It works behind any firewall or NAT.
+
 ## Status
 
-Phase 3 — Telegram + Slack + iMessage support, multi-workspace, session continuity, streaming, steering, daemon mode, and CLI management.
+Phase 3 — Telegram + Slack + iMessage, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI.
 
 ## Changelog
 
