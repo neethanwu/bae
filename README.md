@@ -34,21 +34,43 @@ Your Phone                     Your Machine
 - **No tunnel or server** — all connections are outbound (long polling, Socket Mode, database polling)
 - **Multi-platform** — Telegram, Slack, and iMessage today. Discord and email coming soon.
 - **Conversation continuity** — messages in the same thread share agent context
-- **Agent-agnostic** — swap between Claude Code, Codex, or any CLI agent without losing project context
+- **Agent-agnostic** — swap between agents without losing project context
+
+## Supported Agents
+
+Bae works with any CLI agent that accepts prompts and produces text output. The agent runs on your machine with your local auth — no API keys needed.
+
+| Agent | Status | Notes |
+|-------|--------|-------|
+| [Claude Code](https://docs.anthropic.com/s/claude-code) | **Tested** | Primary backend. Streaming, steering, session resume. |
+| [Codex](https://github.com/openai/codex) | Planned | Will use the same executor interface. |
+| [OpenCode](https://github.com/opencode-ai/opencode) | Planned | ACP protocol support in future. |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Planned | Executor adapter needed. |
+| [Amp](https://ampcode.com/) | Planned | Executor adapter needed. |
+
+To use Bae, install at least one agent first. For example:
+
+```bash
+# Install Claude Code
+npm install -g @anthropic-ai/claude-code
+claude auth login
+```
 
 ## Quick Start
 
-### 1. Install
+### 1. Install Bae
 
 ```bash
 npm install -g bae-bridge
 ```
 
-### 2. Make sure your agent is ready
+### 2. Go to your project folder
 
 ```bash
-claude --version    # Claude Code must be installed and authenticated
+cd ~/my-project
 ```
+
+Bae uses your current directory as the agent's workspace. The agent will have access to all files here — CLAUDE.md, git history, project files, etc.
 
 ### 3. Set up your first channel
 
@@ -56,19 +78,15 @@ claude --version    # Claude Code must be installed and authenticated
 bae init
 ```
 
-The wizard walks you through everything:
-- Choose your platform (Telegram, Slack, or iMessage)
-- Enter your credentials (or none for iMessage)
-- Pick your workspace directory (defaults to your current folder)
-- Set allowed user IDs
+The wizard walks you through everything — pick your platform, enter credentials, and set allowed user IDs.
 
-### 4. Start
+### 4. Start in background
 
 ```bash
-bae start
+bae start -d
 ```
 
-That's it. Message your bot and start chatting with your agent.
+That's it! Message your bot and start chatting with your agent. Use `bae logs` to watch what's happening, and `bae stop` when you're done.
 
 ## Platform Setup
 
@@ -79,7 +97,7 @@ That's it. Message your bot and start chatting with your agent.
 3. Copy the bot token
 4. Run `bae init`, select Telegram, paste your token
 
-**Find your user ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram.
+**Find your user ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram — it replies with your numeric user ID.
 
 ### Slack
 
@@ -96,17 +114,17 @@ Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 ### iMessage (macOS only)
 
 1. Open **System Settings → Privacy & Security → Full Disk Access**
-2. Add your terminal app (Terminal, iTerm, Warp, etc.)
-3. **Restart your terminal** (required — won't work without this)
+2. Add your terminal app (Terminal, iTerm, Warp, etc.) — this allows Bae to read your Messages database while it's running. **Keep this enabled** as long as you use Bae with iMessage.
+3. **Restart your terminal** (required — macOS doesn't apply the permission until restart)
 4. Run `bae init`, select iMessage
 
-No credentials needed — iMessage reads from your local Messages database and sends via AppleScript. Text yourself ("Note to Self") to chat with your agent. Agent responses are prefixed with `Bae:` so you can tell them apart.
+No credentials needed. Text yourself ("Note to Self") to chat with your agent. Agent responses are prefixed with `Bae:` so you can tell them apart.
 
 ## Usage
 
 ```bash
-bae start          # Start in foreground
-bae start -d       # Start in background (daemon mode)
+bae start -d       # Start in background (recommended)
+bae start          # Start in foreground (see all logs)
 bae stop           # Stop the daemon
 bae status         # Check if running
 bae logs           # Tail daemon logs
@@ -132,10 +150,14 @@ Bae auto-detects your workspace. All channels share the same agent and project c
 
 ## Multi-Workspace
 
-Each workspace is a folder on disk — the agent's working directory. Create separate workspaces for different projects:
+Each workspace is a folder on disk. Create separate workspaces for different projects:
 
 ```bash
-# Add a workspace
+# Go to your project folder
+cd ~/research
+bae workspace add research
+
+# Or specify the path explicitly
 bae workspace add research --path ~/research
 
 # Add a channel to it
@@ -154,13 +176,13 @@ bae workspace set-executor research codex
 
 ## How It Works
 
-| Platform | Connection | Streaming |
-|----------|-----------|-----------|
-| Telegram | Long polling (Chat SDK) | Edit-in-place |
-| Slack | Socket Mode (WebSocket) | Native streaming API |
-| iMessage | SQLite database polling | No streaming (plain text) |
+| Platform | Connection | Streaming | Formatting |
+|----------|-----------|-----------|------------|
+| Telegram | Long polling | Edit-in-place | HTML |
+| Slack | Socket Mode (WebSocket) | Native streaming API | Markdown |
+| iMessage | Database polling (2s) | No streaming | Plain text |
 
-All connections are **outbound** — Bae never needs a public URL, tunnel, or webhook endpoint. It works behind any firewall or NAT.
+All connections are **outbound** — Bae never needs a public URL, tunnel, or webhook endpoint. Works behind any firewall or NAT.
 
 ## Status
 
@@ -172,4 +194,4 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT
+Apache-2.0
