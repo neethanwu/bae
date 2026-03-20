@@ -1,8 +1,8 @@
-# Bae — Your AI, Always On
+# Bae — Your Agent, In Your Pocket
 
 [![npm version](https://img.shields.io/npm/v/bae-bridge)](https://www.npmjs.com/package/bae-bridge)
 
-> Turn any always-on machine into a personal AI agent server, accessible from your messaging apps.
+> Access your agents from anywhere — continuously.
 
 ```
  ██████╗  █████╗ ███████╗
@@ -15,7 +15,7 @@
 
 ## What Is Bae?
 
-Bae connects your messaging apps to coding agents running on your machine. The agent is the brain. Bae is the phone line.
+You already have powerful agents. Bae lets you reach them from your pocket.
 
 ```
 Your Phone                     Your Machine
