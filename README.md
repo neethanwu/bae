@@ -95,9 +95,8 @@ That's it! Message your bot and start chatting with your agent. Use `bae logs` t
 1. Message [@BotFather](https://t.me/BotFather) on Telegram
 2. Send `/newbot` and follow the prompts
 3. Copy the bot token
-4. Open your new bot in Telegram and press **Start** (this lets you find your user ID)
-5. Message [@userinfobot](https://t.me/userinfobot) — it replies with your numeric user ID
-6. Run `bae init`, select Telegram, paste your token and user ID
+4. Message [@userinfobot](https://t.me/userinfobot) — it replies with your numeric user ID
+5. Run `bae init`, select Telegram, paste your token and user ID
 
 ### Slack
 
@@ -175,13 +174,17 @@ bae workspace list
 bae channel list
 ```
 
-Everything in the workspace folder (CLAUDE.md, git history, project files) is the agent's context. Swap the agent anytime without losing context:
+Everything in the workspace folder (CLAUDE.md, git history, project files) is the agent's context. When more agents are supported, you'll be able to swap anytime without losing context:
 
 ```bash
-bae workspace set-executor research codex
+bae workspace set-executor research codex    # coming soon
 ```
 
 ## How It Works
+
+> **DM-only for now.** Bae focuses on personal use — direct messages between you and your agent. Group chat support is planned for a future release.
+
+
 
 | Platform | Connection | Streaming | Formatting |
 |----------|-----------|-----------|------------|
