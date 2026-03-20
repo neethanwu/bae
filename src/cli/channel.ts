@@ -20,9 +20,35 @@ export async function channelCommand(
 			return addChannel(args.slice(1), store);
 		case "remove":
 			return removeChannel(args.slice(1), store);
+		case "help":
+		case "--help":
+		case "-h":
+		case undefined:
+			console.log(`
+  bae channel — Manage channels
+
+  Commands:
+    list                    List all channels (grouped by workspace)
+    add [workspace-slug]    Add a channel (interactive if no flags)
+    remove <channel-id>     Remove a channel
+
+  Options (add):
+    --platform <name>    Platform: telegram, slack, imessage
+    --label <text>       Display label for the channel
+
+  Options (list):
+    --workspace <slug>   Filter channels by workspace
+
+  Examples:
+    bae channel add research --platform telegram
+    bae channel add                                (interactive)
+    bae channel list
+    bae channel remove chan_abc123
+`);
+			break;
 		default:
 			console.error(
-				`Unknown channel command: ${sub}\nUsage: bae channel [list|add|remove]`,
+				`Unknown channel command: ${sub}\nRun \`bae channel --help\` for usage.`,
 			);
 			process.exit(1);
 	}
@@ -45,27 +71,26 @@ function listChannels(args: string[], store: Store): void {
 		return;
 	}
 
-	// Calculate column widths for alignment
-	const rows = channels.map((ch) => ({
-		id: ch.id,
-		workspace: ch.workspaceId,
-		platform: ch.platform,
-		label: ch.label ?? "-",
-		users: ch.allowedUsers.join(", "),
-	}));
-
-	const idWidth = Math.max(...rows.map((r) => r.id.length));
-	const wsWidth = Math.max(...rows.map((r) => r.workspace.length));
-	const platWidth = Math.max(...rows.map((r) => r.platform.length));
-	const labelWidth = Math.max(...rows.map((r) => r.label.length));
-
-	console.log();
-	for (const r of rows) {
-		console.log(
-			`  ${r.id.padEnd(idWidth)}  ${r.workspace.padEnd(wsWidth)}  ${r.platform.padEnd(platWidth)}  ${r.label.padEnd(labelWidth)}  users: ${r.users}`,
-		);
+	// Group channels by workspace
+	const grouped = new Map<string, typeof channels>();
+	for (const ch of channels) {
+		const key = ch.workspaceId;
+		if (!grouped.has(key)) grouped.set(key, []);
+		grouped.get(key)?.push(ch);
 	}
-	console.log();
+
+	console.log("\nChannels:\n");
+	for (const [wsId, wsChannels] of grouped) {
+		console.log(`  Workspace: ${wsId}`);
+		for (const ch of wsChannels) {
+			const platWidth = 10;
+			const users = ch.allowedUsers.join(", ");
+			console.log(
+				`    ${ch.platform.padEnd(platWidth)}${ch.id}  users: ${users}`,
+			);
+		}
+		console.log();
+	}
 }
 
 function parseChannelFlags(argv: string[]): {
@@ -95,12 +120,33 @@ function parseChannelFlags(argv: string[]): {
 async function addChannel(args: string[], store: Store): Promise<void> {
 	const flags = parseChannelFlags(args);
 
-	const workspaceSlug = flags.slug;
+	let workspaceSlug = flags.slug;
 	if (!workspaceSlug) {
-		console.error(
-			"Usage: bae channel add <workspace-slug> --platform telegram [--label 'My Bot']",
-		);
-		process.exit(1);
+		const workspaces = store.listWorkspaces();
+		if (workspaces.length === 0) {
+			console.error(
+				"No workspaces configured.\n\n" +
+					"  Create one first:  bae workspace add\n" +
+					"  Or run:            bae init\n",
+			);
+			process.exit(1);
+		}
+		if (workspaces.length === 1 && workspaces[0]) {
+			workspaceSlug = workspaces[0].id;
+		} else {
+			const wsChoice = await p.select({
+				message: "Select workspace:",
+				options: workspaces.map((ws) => ({
+					value: ws.id,
+					label: `${ws.id} (${ws.path})`,
+				})),
+			});
+			if (p.isCancel(wsChoice)) {
+				p.cancel("Cancelled.");
+				process.exit(0);
+			}
+			workspaceSlug = wsChoice as string;
+		}
 	}
 
 	const ws = store.getWorkspace(workspaceSlug);
@@ -109,7 +155,37 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 		process.exit(1);
 	}
 
-	const platform = (flags.platform ?? "telegram") as Platform;
+	let platform: Platform;
+	const VALID_PLATFORMS = new Set(["telegram", "slack", "imessage"]);
+	if (flags.platform) {
+		if (!VALID_PLATFORMS.has(flags.platform)) {
+			console.error(
+				`Unsupported platform: "${flags.platform}"\nAvailable: telegram, slack, imessage`,
+			);
+			process.exit(1);
+		}
+		platform = flags.platform as Platform;
+	} else {
+		const platformOptions: { value: string; label: string }[] = [
+			{ value: "telegram", label: "Telegram" },
+			{ value: "slack", label: "Slack" },
+		];
+		if (process.platform === "darwin") {
+			platformOptions.push({
+				value: "imessage",
+				label: "iMessage (macOS only)",
+			});
+		}
+		const platChoice = await p.select({
+			message: "Platform:",
+			options: platformOptions,
+		});
+		if (p.isCancel(platChoice)) {
+			p.cancel("Cancelled.");
+			process.exit(0);
+		}
+		platform = platChoice as Platform;
+	}
 
 	// Prompt for platform-specific credentials
 	const creds = await promptCredentials(platform);

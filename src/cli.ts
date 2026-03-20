@@ -14,6 +14,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadEnvFile } from "./cli/env.ts";
+import { checkForUpdates } from "./cli/update-check.ts";
 
 const BAE_DIR = join(homedir(), ".bae");
 const PID_FILE = join(BAE_DIR, "bae.pid");
@@ -38,6 +39,12 @@ const VERSION =
 
 const args = process.argv.slice(2);
 const command = args[0];
+
+// Update check only on long-running commands (start) or status.
+// Short commands (--help, --version, stop) should not hold the process open.
+if (command === "start" || command === "status") {
+	checkForUpdates(VERSION);
+}
 
 switch (command) {
 	case "start":
@@ -81,7 +88,7 @@ function printHelp() {
   bae — Bridge your messaging apps to CLI coding agents
 
   Usage:
-    bae init                      Guided setup wizard
+    bae init                      Guided setup wizard (start here!)
     bae start [-d]                Start Bae (use -d for background mode)
     bae stop                      Stop running Bae instance
     bae status                    Show running/stopped
@@ -222,7 +229,10 @@ async function start() {
 	const channels = store.listChannels();
 	if (channels.length === 0) {
 		console.error(
-			"No channels configured. Run `bae init` or `bae workspace add` + `bae channel add`.",
+			"No channels configured.\n\n" +
+				"  Quick setup:  bae init\n" +
+				"  Manual setup: bae workspace add <name> --path <dir>\n" +
+				"                bae channel add <workspace> --platform telegram\n",
 		);
 		process.exit(1);
 	}
@@ -291,6 +301,7 @@ async function start() {
 	console.log(
 		`[bae] Running — ${workspaces.length} workspace(s), ${handles.length} channel(s), port ${port}`,
 	);
+	console.log("[bae] Send a message to your bot to start chatting!");
 
 	async function shutdown() {
 		console.log("[bae] Shutting down...");

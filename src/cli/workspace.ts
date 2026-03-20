@@ -34,9 +34,34 @@ export async function workspaceCommand(
 			return removeWorkspace(args.slice(1), store);
 		case "set-executor":
 			return setExecutor(args.slice(1), store);
+		case "help":
+		case "--help":
+		case "-h":
+		case undefined:
+			console.log(`
+  bae workspace — Manage workspaces
+
+  Commands:
+    list                              List all workspaces
+    add [slug]                        Add a workspace (interactive if no flags)
+    remove <slug>                     Remove a workspace and its channels
+    set-executor <slug> <executor>    Change the agent for a workspace
+
+  Options (add):
+    --path <directory>    Workspace directory (defaults to current directory)
+    --name <name>         Display name (defaults to slug)
+    --executor <type>     Agent executor (defaults to claude-code)
+
+  Examples:
+    bae workspace add research --path ~/research
+    bae workspace add                              (interactive)
+    bae workspace list
+    bae workspace remove old-project
+`);
+			break;
 		default:
 			console.error(
-				`Unknown workspace command: ${sub}\nUsage: bae workspace [list|add|remove|set-executor]`,
+				`Unknown workspace command: ${sub}\nRun \`bae workspace --help\` for usage.`,
 			);
 			process.exit(1);
 	}
@@ -103,12 +128,22 @@ function parseWorkspaceFlags(argv: string[]): {
 async function addWorkspace(args: string[], store: Store): Promise<void> {
 	const flags = parseWorkspaceFlags(args);
 
-	const slug = flags.slug;
+	let slug = flags.slug;
 	if (!slug) {
-		console.error(
-			"Usage: bae workspace add <slug> --name <name> --path <path> [--executor claude-code]",
-		);
-		process.exit(1);
+		const slugInput = await p.text({
+			message: "Workspace slug (short name):",
+			placeholder: "my-project",
+			validate: (val) => {
+				if (!val) return "Slug is required";
+				if (!SLUG_RE.test(val))
+					return "Must be lowercase alphanumeric with hyphens, 1-32 chars";
+			},
+		});
+		if (p.isCancel(slugInput)) {
+			p.cancel("Cancelled.");
+			process.exit(0);
+		}
+		slug = slugInput;
 	}
 
 	if (!SLUG_RE.test(slug)) {
@@ -118,10 +153,18 @@ async function addWorkspace(args: string[], store: Store): Promise<void> {
 		process.exit(1);
 	}
 
-	const path = flags.path;
+	let path = flags.path;
 	if (!path) {
-		console.error("--path is required");
-		process.exit(1);
+		const pathInput = await p.text({
+			message: "Workspace directory:",
+			defaultValue: process.cwd(),
+			placeholder: process.cwd(),
+		});
+		if (p.isCancel(pathInput)) {
+			p.cancel("Cancelled.");
+			process.exit(0);
+		}
+		path = pathInput;
 	}
 
 	// Expand ~ and resolve

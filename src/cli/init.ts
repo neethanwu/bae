@@ -101,7 +101,14 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			let credentials: Record<string, string>;
 			let displayName: string;
 
-			if (platform === "slack") {
+			if (platform === "imessage") {
+				if (process.platform !== "darwin") {
+					console.error("iMessage requires macOS.");
+					process.exit(1);
+				}
+				credentials = { BAE_LOCAL_MODE: "true" };
+				displayName = "iMessage";
+			} else if (platform === "slack") {
 				const botToken = flags["bot-token"] || flags.token;
 				const appToken = flags["app-token"];
 				if (!botToken?.startsWith("xoxb-")) {
@@ -388,7 +395,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		}
 
 		// 5. Workspace
-		const defaultCwd = join(homedir(), "baesment");
+		const defaultCwd = process.cwd();
 		const workspace = await p.text({
 			message: "Workspace directory (where the agent works):",
 			defaultValue: defaultCwd,
@@ -412,11 +419,32 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			platform,
 		});
 
+		const channelSummaries: string[] = [`${displayName} (${platform})`];
+
+		// Offer to add more channels
+		let addMore = true;
+		while (addMore) {
+			const addAnother = await p.confirm({
+				message: "Add another channel to this workspace?",
+				initialValue: false,
+			});
+			if (p.isCancel(addAnother) || !addAnother) {
+				addMore = false;
+				break;
+			}
+
+			// Import and run the channel add flow
+			const { channelCommand } = await import("./channel.ts");
+			const channelStore = store;
+			await channelCommand(["add", slug], channelStore);
+			channelSummaries.push("(added via channel add)");
+		}
+
 		const accessLabel = `${allowedUsers.length} authorized user${allowedUsers.length > 1 ? "s" : ""}`;
 
 		p.note(
 			[
-				`Channel:    ${displayName}`,
+				`Channel(s): ${channelSummaries.join(", ")}`,
 				`Workspace:  ${workspace} (${slug})`,
 				`Access:     ${accessLabel}`,
 			].join("\n"),
