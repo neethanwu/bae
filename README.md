@@ -59,7 +59,8 @@ Your Phone                     Your Machine
 - **Node.js 20+** — runtime for the bridge
 - **Claude Code** (or another supported agent) — installed and authenticated
 - **Telegram Bot Token** — create one via [@BotFather](https://t.me/BotFather), or
-- **Slack App** — create one from the provided [manifest](slack-manifest.json)
+- **Slack App** — create one from the provided [manifest](slack-manifest.json), or
+- **macOS with iMessage** — for iMessage local mode (Full Disk Access required)
 
 ## Install
 
@@ -76,8 +77,8 @@ bae init
 ```
 
 This walks you through:
-- Platform selection (Telegram or Slack)
-- Platform credentials (bot token for Telegram, bot + app tokens for Slack)
+- Platform selection (Telegram, Slack, or iMessage)
+- Platform credentials (bot token for Telegram, bot + app tokens for Slack, none for iMessage)
 - Workspace directory (default: `~/baesment`)
 - Allowed user IDs (for access control)
 
@@ -114,6 +115,14 @@ Once running, message your bot on Telegram or Slack. Send `/new` to start a fres
 
 Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 
+## iMessage Setup (macOS only)
+
+1. Grant **Full Disk Access** to your terminal: System Settings → Privacy & Security → Full Disk Access
+2. **Restart your terminal** (required after granting FDA)
+3. Run `bae init` and select iMessage, or `bae channel add <workspace> --platform imessage`
+
+iMessage uses local mode — reads from your Messages database and sends via AppleScript. Text yourself ("Note to Self") to chat with your agent. Agent responses are prefixed with `Bae:` for visual distinction.
+
 ## Multi-Workspace
 
 Bae supports multiple workspaces, each with its own agent identity, folder, and communication channels.
@@ -138,7 +147,7 @@ bae workspace set-executor research codex
 
 ## Status
 
-Phase 3 — Telegram + Slack support, multi-workspace, session continuity, streaming, steering, daemon mode, and CLI management.
+Phase 3 — Telegram + Slack + iMessage support, multi-workspace, session continuity, streaming, steering, daemon mode, and CLI management.
 
 ## Changelog
 
