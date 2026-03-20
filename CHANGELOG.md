@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-03-20
+
+### Added
+- Interactive `bae workspace add` — prompts for slug and path if not provided, defaults to current directory
+- Interactive `bae channel add` — auto-detects single workspace, platform selection prompt, hides already-configured platforms
+- `--help` for workspace and channel subcommands
+- Auto-update notifications — checks npm registry every 24h, notifies once per new version
+- "Add another channel" option when re-running `bae init` on existing workspace
+- iMessage headless init support (`--platform imessage`)
+- Platform flag validation (rejects unknown platforms like `--platform discord`)
+
+### Changed
+- Default workspace path changed from `~/baesment` to current directory
+- Slack setup: manifest auto-copied to clipboard (macOS/Windows/Linux), fallback to temp file
+- Slack setup: two-step guided flow (create app → confirm → one token at a time)
+- Channel list output grouped by workspace
+- Better error messages with actionable guidance throughout CLI
+- `bae start` shows "Send a message to your bot to start chatting!" on success
+- `bae init` highlighted as starting point in help text
+- License changed from MIT to Apache-2.0
+- README rewritten for user-friendly onboarding with Quick Start guide
+
 ## [0.2.2] - 2026-03-19
 
 ### Added
@@ -139,7 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Factory-based initialization (`createBot`, `createBridge`)
 - Auto-create workspace directory, default `~/baesment`
 
-[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/neethanwu/bae/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/neethanwu/bae/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/neethanwu/bae/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/neethanwu/bae/compare/v0.1.0...v0.2.0
