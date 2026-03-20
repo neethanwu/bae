@@ -369,37 +369,34 @@ async function promptCredentials(
 			return { TELEGRAM_BOT_TOKEN: token };
 		}
 		case "slack": {
-			const manifest = JSON.stringify(
-				{
-					display_information: {
-						name: "Bae",
-						description: "Bridge to your local coding agent",
-					},
-					features: {
-						bot_user: { display_name: "Bae", always_online: true },
-						slash_commands: [
-							{ command: "/new", description: "Start a new session" },
+			const manifestObj = {
+				display_information: {
+					name: "Bae",
+					description: "Bridge to your local coding agent",
+				},
+				features: {
+					bot_user: { display_name: "Bae", always_online: true },
+					slash_commands: [
+						{ command: "/new", description: "Start a new session" },
+					],
+				},
+				oauth_config: {
+					scopes: {
+						bot: [
+							"chat:write",
+							"im:history",
+							"im:read",
+							"im:write",
+							"commands",
 						],
 					},
-					oauth_config: {
-						scopes: {
-							bot: [
-								"chat:write",
-								"im:history",
-								"im:read",
-								"im:write",
-								"commands",
-							],
-						},
-					},
-					settings: {
-						event_subscriptions: { bot_events: ["message.im"] },
-						socket_mode_enabled: true,
-					},
 				},
-				null,
-				2,
-			);
+				settings: {
+					event_subscriptions: { bot_events: ["message.im"] },
+					socket_mode_enabled: true,
+				},
+			};
+			const manifest = JSON.stringify(manifestObj, null, 2);
 
 			// Try to copy manifest to clipboard
 			try {
@@ -418,9 +415,9 @@ async function promptCredentials(
 			p.log.info(
 				"To create a Slack app:\n" +
 					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
-					"  2. Switch to JSON tab and paste this manifest:\n\n" +
-					manifest,
+					"  2. Switch to JSON tab and paste the manifest below",
 			);
+			p.note(manifest, "Slack App Manifest (paste this)");
 
 			const created = await p.confirm({
 				message:
