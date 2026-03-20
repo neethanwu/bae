@@ -456,22 +456,12 @@ async function promptCredentials(
 				process.exit(0);
 			}
 
+			// Step 1: App-Level Token
 			p.log.info(
-				"Now grab your tokens:\n" +
-					"  1. Under Basic Information → App-Level Tokens, generate one with connections:write scope\n" +
-					"  2. Under Install App → Bot User OAuth Token",
+				"In your Slack app settings:\n" +
+					"  Go to Basic Information → App-Level Tokens → Generate Token\n" +
+					"  Name it anything, add the connections:write scope, then copy it.",
 			);
-
-			const botToken = await p.text({
-				message: "Bot OAuth token (xoxb-...):",
-				validate: (val) => {
-					if (!val?.startsWith("xoxb-")) return "Must start with xoxb-";
-				},
-			});
-			if (p.isCancel(botToken)) {
-				p.cancel("Cancelled.");
-				process.exit(0);
-			}
 			const appToken = await p.text({
 				message: "App-Level token (xapp-...):",
 				validate: (val) => {
@@ -479,6 +469,21 @@ async function promptCredentials(
 				},
 			});
 			if (p.isCancel(appToken)) {
+				p.cancel("Cancelled.");
+				process.exit(0);
+			}
+
+			// Step 2: Bot OAuth Token
+			p.log.info(
+				"Now go to Install App (in the sidebar) and copy the Bot User OAuth Token.",
+			);
+			const botToken = await p.text({
+				message: "Bot OAuth token (xoxb-...):",
+				validate: (val) => {
+					if (!val?.startsWith("xoxb-")) return "Must start with xoxb-";
+				},
+			});
+			if (p.isCancel(botToken)) {
 				p.cancel("Cancelled.");
 				process.exit(0);
 			}
