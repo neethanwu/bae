@@ -166,14 +166,32 @@ export async function runInit(argv: string[] = []): Promise<void> {
 
 		const workspaces = store.listWorkspaces();
 		if (workspaces.length > 0) {
-			const reconfigure = await p.confirm({
-				message: `Found ${workspaces.length} workspace(s). Reconfigure?`,
-				initialValue: true,
+			const action = await p.select({
+				message: `Found ${workspaces.length} workspace(s). What would you like to do?`,
+				options: [
+					{
+						value: "add-channel",
+						label: "Add another channel to an existing workspace",
+					},
+					{ value: "reconfigure", label: "Start fresh (reconfigure)" },
+					{ value: "exit", label: "Nothing, I'm all set" },
+				],
 			});
-			if (p.isCancel(reconfigure) || !reconfigure) {
+
+			if (p.isCancel(action) || action === "exit") {
 				p.outro("Run `bae start` to begin.");
 				return;
 			}
+
+			if (action === "add-channel") {
+				// Jump directly to channel add flow
+				const { channelCommand } = await import("./channel.ts");
+				await channelCommand(["add"], store);
+				p.outro("Run `bae start` to begin.");
+				return;
+			}
+
+			// action === "reconfigure" — fall through to full init
 		}
 
 		// 1. Detect agent CLI
