@@ -315,8 +315,9 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			};
 			const manifest = JSON.stringify(manifestObj, null, 2);
 
-			// Try to copy manifest to clipboard
+			// Try to copy manifest to clipboard, fallback to temp file
 			let copied = false;
+			let manifestPath = "";
 			try {
 				if (process.platform === "darwin") {
 					execSync("pbcopy", { input: manifest });
@@ -329,20 +330,36 @@ export async function runInit(argv: string[] = []): Promise<void> {
 					copied = true;
 				}
 			} catch {
-				// Clipboard not available
+				try {
+					const { writeFileSync: writeFile } = await import("node:fs");
+					const { tmpdir } = await import("node:os");
+					manifestPath = join(tmpdir(), "bae-slack-manifest.json");
+					writeFile(manifestPath, manifest);
+				} catch {
+					// Can't write temp file either
+				}
 			}
 
-			p.log.info(
-				"To create a Slack app:\n" +
-					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
-					"  2. Switch to JSON tab and paste the manifest below",
-			);
-			p.note(
-				manifest,
-				copied
-					? "Slack App Manifest (already in your clipboard!)"
-					: "Slack App Manifest (copy and paste this)",
-			);
+			if (copied) {
+				p.log.info(
+					"To create a Slack app:\n" +
+						"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+						"  2. Switch to JSON tab and paste (already in your clipboard!)",
+				);
+			} else if (manifestPath) {
+				p.log.info(
+					"To create a Slack app:\n" +
+						"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+						`  2. Switch to JSON tab and paste the contents of:\n     ${manifestPath}`,
+				);
+			} else {
+				p.log.info(
+					"To create a Slack app:\n" +
+						"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+						"  2. Switch to JSON tab and paste this manifest:",
+				);
+				p.note(manifest, "Slack App Manifest");
+			}
 
 			const created = await p.confirm({
 				message:

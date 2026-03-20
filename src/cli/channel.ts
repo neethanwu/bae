@@ -398,8 +398,9 @@ async function promptCredentials(
 			};
 			const manifest = JSON.stringify(manifestObj, null, 2);
 
-			// Try to copy manifest to clipboard
+			// Try to copy manifest to clipboard, fallback to temp file
 			let copied = false;
+			let manifestPath = "";
 			try {
 				const { execSync: exec } = await import("node:child_process");
 				if (process.platform === "darwin") {
@@ -413,20 +414,38 @@ async function promptCredentials(
 					copied = true;
 				}
 			} catch {
-				// Clipboard not available — user will copy manually
+				// Clipboard not available — write to temp file instead
+				try {
+					const { writeFileSync: writeFile } = await import("node:fs");
+					const { join: joinPath } = await import("node:path");
+					const { tmpdir } = await import("node:os");
+					manifestPath = joinPath(tmpdir(), "bae-slack-manifest.json");
+					writeFile(manifestPath, manifest);
+				} catch {
+					// Can't write temp file either — user will have to copy from screen
+				}
 			}
 
-			p.log.info(
-				"To create a Slack app:\n" +
-					"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
-					"  2. Switch to JSON tab and paste the manifest below",
-			);
-			p.note(
-				manifest,
-				copied
-					? "Slack App Manifest (already in your clipboard!)"
-					: "Slack App Manifest (copy and paste this)",
-			);
+			if (copied) {
+				p.log.info(
+					"To create a Slack app:\n" +
+						"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+						"  2. Switch to JSON tab and paste (already in your clipboard!)",
+				);
+			} else if (manifestPath) {
+				p.log.info(
+					"To create a Slack app:\n" +
+						"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+						`  2. Switch to JSON tab and paste the contents of:\n     ${manifestPath}`,
+				);
+			} else {
+				p.log.info(
+					"To create a Slack app:\n" +
+						"  1. Go to https://api.slack.com/apps → Create New App → From a manifest\n" +
+						"  2. Switch to JSON tab and paste this manifest:",
+				);
+				p.note(manifest, "Slack App Manifest");
+			}
 
 			const created = await p.confirm({
 				message:
