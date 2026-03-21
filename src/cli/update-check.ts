@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -103,7 +110,7 @@ export function checkForUpdates(currentVersion: string): void {
 
 /**
  * Auto-update bae-bridge if a newer version is available.
- * Runs synchronously before the server boots — safe because nothing is live yet.
+ * Runs before the server boots — safe because nothing is live yet.
  * Returns true if an update was applied.
  */
 export async function autoUpdate(currentVersion: string): Promise<boolean> {
@@ -113,20 +120,71 @@ export async function autoUpdate(currentVersion: string): Promise<boolean> {
 		const latest = await fetchLatestVersion();
 		if (!latest || !isNewerVersion(currentVersion, latest)) return false;
 
-		console.log(`[bae] Updating bae-bridge: ${currentVersion} → ${latest}`);
-		const { execSync } = await import("node:child_process");
-		execSync("npm update -g bae-bridge", {
-			stdio: "pipe",
-			timeout: 60000,
-		});
-		console.log("[bae] Update complete. Restart bae to use the new version.");
-		return true;
+		return installUpdate(currentVersion, latest);
 	} catch (e) {
 		console.warn(
 			`[bae] Auto-update failed: ${e instanceof Error ? e.message : String(e)}`,
 		);
 		return false;
 	}
+}
+
+function installUpdate(currentVersion: string, latest: string): boolean {
+	try {
+		console.log(`[bae] Updating bae-bridge: ${currentVersion} → ${latest}`);
+		execSync("npm update -g bae-bridge", { stdio: "pipe", timeout: 60000 });
+		console.log("[bae] Updated successfully.");
+		return true;
+	} catch (e) {
+		console.warn(
+			`[bae] Update install failed: ${e instanceof Error ? e.message : String(e)}`,
+		);
+		return false;
+	}
+}
+
+/**
+ * Schedule periodic update checks for a running server.
+ * When an update is found, installs it, gracefully shuts down,
+ * and re-spawns as a daemon child with the new code.
+ */
+export function scheduleAutoUpdate(
+	currentVersion: string,
+	onRestart: () => Promise<void>,
+): void {
+	if (process.env.BAE_NO_AUTO_UPDATE) return;
+
+	const LIVE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+	const check = async () => {
+		try {
+			const latest = await fetchLatestVersion();
+			if (!latest || !isNewerVersion(currentVersion, latest)) return;
+
+			const updated = installUpdate(currentVersion, latest);
+			if (!updated) return;
+
+			console.log("[bae] Restarting with new version...");
+			await onRestart();
+
+			// Spawn a new daemon child with the updated code
+			const { spawn } = await import("node:child_process");
+			const logFd = openSync(join(homedir(), ".bae", "bae.log"), "a");
+			const child = spawn(
+				process.execPath,
+				[process.argv[1] ?? "", "start", "--_daemon-child"],
+				{ detached: true, stdio: ["ignore", logFd, logFd] },
+			);
+			child.unref();
+			process.exit(0);
+		} catch (e) {
+			console.warn(
+				`[bae] Live auto-update failed: ${e instanceof Error ? e.message : String(e)}`,
+			);
+		}
+	};
+
+	setInterval(check, LIVE_CHECK_INTERVAL_MS);
 }
 
 async function fetchLatestVersion(): Promise<string | null> {

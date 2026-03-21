@@ -14,7 +14,11 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadEnvFile } from "./cli/env.ts";
-import { autoUpdate, checkForUpdates } from "./cli/update-check.ts";
+import {
+	autoUpdate,
+	checkForUpdates,
+	scheduleAutoUpdate,
+} from "./cli/update-check.ts";
 
 const BAE_DIR = join(homedir(), ".bae");
 const PID_FILE = join(BAE_DIR, "bae.pid");
@@ -345,18 +349,25 @@ async function start() {
 	);
 	console.log("[bae] Send a message to your bot to start chatting!");
 
-	async function shutdown() {
+	async function gracefulStop() {
 		console.log("[bae] Shutting down...");
 		await Promise.allSettled(handles.map((h) => h.stop()));
 		await bridge.shutdown();
 		try {
 			unlinkSync(PID_FILE);
 		} catch {}
+	}
+
+	async function shutdown() {
+		await gracefulStop();
 		process.exit(0);
 	}
 
 	process.on("SIGTERM", shutdown);
 	process.on("SIGINT", shutdown);
+
+	// Periodic auto-update: check every 6h, install + restart if newer
+	scheduleAutoUpdate(VERSION, gracefulStop);
 }
 
 function stop() {
