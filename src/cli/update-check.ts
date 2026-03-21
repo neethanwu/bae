@@ -101,6 +101,34 @@ export function checkForUpdates(currentVersion: string): void {
 	}
 }
 
+/**
+ * Auto-update bae-bridge if a newer version is available.
+ * Runs synchronously before the server boots — safe because nothing is live yet.
+ * Returns true if an update was applied.
+ */
+export async function autoUpdate(currentVersion: string): Promise<boolean> {
+	try {
+		if (process.env.BAE_NO_AUTO_UPDATE) return false;
+
+		const latest = await fetchLatestVersion();
+		if (!latest || !isNewerVersion(currentVersion, latest)) return false;
+
+		console.log(`[bae] Updating bae-bridge: ${currentVersion} → ${latest}`);
+		const { execSync } = await import("node:child_process");
+		execSync("npm update -g bae-bridge", {
+			stdio: "pipe",
+			timeout: 60000,
+		});
+		console.log("[bae] Update complete. Restart bae to use the new version.");
+		return true;
+	} catch (e) {
+		console.warn(
+			`[bae] Auto-update failed: ${e instanceof Error ? e.message : String(e)}`,
+		);
+		return false;
+	}
+}
+
 async function fetchLatestVersion(): Promise<string | null> {
 	try {
 		const controller = new AbortController();

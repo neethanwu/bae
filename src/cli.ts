@@ -14,7 +14,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadEnvFile } from "./cli/env.ts";
-import { checkForUpdates } from "./cli/update-check.ts";
+import { autoUpdate, checkForUpdates } from "./cli/update-check.ts";
 
 const BAE_DIR = join(homedir(), ".bae");
 const PID_FILE = join(BAE_DIR, "bae.pid");
@@ -168,6 +168,11 @@ async function start() {
 	loadEnvFile(ENV_FILE);
 
 	const port = Number(process.env.BAE_PORT) || 3456;
+
+	// Auto-update before booting (parent only — daemon child uses updated code)
+	if (!isDaemonChild) {
+		await autoUpdate(VERSION);
+	}
 
 	// Check agent binary exists
 	try {
