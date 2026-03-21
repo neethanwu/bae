@@ -80,13 +80,9 @@ bae init
 
 The wizard walks you through everything — pick your platform, enter credentials, and set allowed user IDs.
 
-### 4. Start in background
+### 4. Done!
 
-```bash
-bae start -d
-```
-
-That's it! Message your bot and start chatting with your agent. Use `bae logs` to watch what's happening, and `bae stop` when you're done.
+`bae init` starts Bae automatically when setup completes. Message your bot and start chatting. Use `bae logs` to watch what's happening, and `bae stop` when you're done.
 
 ## Platform Setup
 
@@ -134,6 +130,7 @@ bae start          # Start in foreground (see all logs)
 bae stop           # Stop the daemon
 bae status         # Check if running
 bae logs           # Tail daemon logs
+bae upgrade        # Update to latest version (restarts if running)
 ```
 
 ### Commands in chat
@@ -152,7 +149,7 @@ Already running Telegram? Add Slack too:
 bae channel add --platform slack
 ```
 
-Bae auto-detects your workspace. All channels share the same agent and project context.
+Bae auto-detects your workspace and restarts automatically — no manual restart needed. All channels share the same agent and project context.
 
 ## Multi-Workspace
 
@@ -194,9 +191,13 @@ bae workspace set-executor research codex    # coming soon
 
 All connections are **outbound** — Bae never needs a public URL, tunnel, or webhook endpoint. Works behind any firewall or NAT.
 
+## Updates
+
+Bae auto-updates on every `bae start` and checks for new versions every 6 hours while running. Updates install and restart automatically — no manual intervention needed. Opt out with `BAE_NO_AUTO_UPDATE=1`.
+
 ## Status
 
-Phase 3 — Telegram + Slack + iMessage, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI.
+Phase 3 — Telegram + Slack + iMessage, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI, auto-updates.
 
 ## Changelog
 
