@@ -386,8 +386,10 @@ async function consumeAllTurns(
 					await thread.post(
 						"Bae's agent isn't logged in. The owner needs to run `claude auth login` on the host machine. Try again after that.",
 					);
-					resetTurnState();
-					continue;
+					// Return to exit the event loop and clean up the handle.
+					// This prevents future messages from being steered to the
+					// broken process (which would show "typing..." for minutes).
+					return;
 				}
 
 				if (!hasText && event.text) {
