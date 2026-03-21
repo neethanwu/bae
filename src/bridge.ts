@@ -11,7 +11,6 @@ import { SessionManager } from "./session/manager.ts";
 import type { Store } from "./session/store.ts";
 import type { AgentEvent } from "./stream/types.ts";
 
-const TYPING_INTERVAL_MS = 4_000;
 const LOG_PREVIEW_LEN = 80;
 
 export interface BridgeConfig {
@@ -219,7 +218,7 @@ async function consumeAllTurns(
 		thread.startTyping().catch(() => {});
 		typingInterval = setInterval(() => {
 			thread.startTyping().catch(() => {});
-		}, TYPING_INTERVAL_MS);
+		}, 4000);
 	}
 
 	function stopTyping() {
