@@ -609,16 +609,13 @@ function detectAgent(): AgentInfo | null {
 
 function verifyAgentAuth(): boolean {
 	try {
-		const out = execSync('claude -p "ok" --max-turns 1 --output-format text', {
+		const out = execSync("claude auth status", {
 			stdio: "pipe",
-			timeout: 30000,
-			env: { ...process.env, CLAUDECODE: undefined },
+			timeout: 5000,
+			encoding: "utf-8",
 		});
-		const text = out.toString().toLowerCase();
-		if (text.includes("not logged in") || text.includes("/login")) {
-			return false;
-		}
-		return true;
+		const status = JSON.parse(out) as { loggedIn?: boolean };
+		return status.loggedIn === true;
 	} catch {
 		return false;
 	}

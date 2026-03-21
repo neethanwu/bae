@@ -195,28 +195,25 @@ async function start() {
 		process.exit(1);
 	}
 
-	// Preflight: verify Claude Code auth works
+	// Preflight: verify Claude Code auth
 	console.log("[bae] Verifying auth...");
 	try {
-		const out = execSync('claude -p "ok" --max-turns 1 --output-format text', {
+		const out = execSync("claude auth status", {
 			stdio: "pipe",
-			timeout: 30000,
-			env: { ...process.env, CLAUDECODE: undefined },
+			timeout: 5000,
+			encoding: "utf-8",
 		});
-		const text = out.toString().toLowerCase();
-		if (text.includes("not logged in") || text.includes("/login")) {
+		const status = JSON.parse(out) as { loggedIn?: boolean };
+		if (!status.loggedIn) {
 			throw new Error("Not logged in");
 		}
-	} catch (e) {
-		const msg =
-			e instanceof Error && "stderr" in e ? String(e.stderr) : String(e);
+	} catch {
 		console.error(
 			"Claude Code is not authenticated. Bae needs a working Claude session.\n\n" +
 				"  To fix, run this in your terminal:\n\n" +
 				"    claude auth login\n\n" +
 				"  Then restart Bae. If you're running headless/remotely, you may\n" +
-				"  need to log in from an interactive terminal first.\n" +
-				(msg.trim() ? `\n  Details: ${msg.trim().slice(0, 200)}\n` : ""),
+				"  need to log in from an interactive terminal first.\n",
 		);
 		process.exit(1);
 	}
