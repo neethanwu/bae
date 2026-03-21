@@ -387,7 +387,6 @@ async function consumeAllTurns(
 						"Bae's agent isn't logged in. The owner needs to run `claude auth login` on the host machine. Try again after that.",
 					);
 					resetTurnState();
-					startTyping();
 					continue;
 				}
 
@@ -399,8 +398,8 @@ async function consumeAllTurns(
 				stopTyping();
 				await finalizeTurn();
 				resetTurnState();
-				// Ready for next turn (steered messages)
-				startTyping();
+				// Don't restart typing here — it fires a Telegram typing action
+				// that lingers ~5s after the reply. Typing resumes on next init/tool_use.
 			}
 
 			if (event.kind === "error") {
@@ -412,7 +411,6 @@ async function consumeAllTurns(
 				}
 				await thread.post(pick(ERROR_AGENT_MESSAGES));
 				resetTurnState();
-				startTyping();
 			}
 		}
 	} finally {
