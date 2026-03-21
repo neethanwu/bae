@@ -180,10 +180,12 @@ async function start() {
 
 	// Auto-update before booting (parent only — daemon child uses updated code)
 	if (!isDaemonChild) {
+		console.log("[bae] Checking for updates...");
 		await autoUpdate(VERSION);
 	}
 
 	// Check agent binary exists
+	console.log("[bae] Checking Claude Code...");
 	try {
 		execSync("claude --version", { stdio: "pipe", timeout: 5000 });
 	} catch {
@@ -194,6 +196,7 @@ async function start() {
 	}
 
 	// Preflight: verify Claude Code auth works
+	console.log("[bae] Verifying auth...");
 	try {
 		const out = execSync('claude -p "ok" --max-turns 1 --output-format text', {
 			stdio: "pipe",
