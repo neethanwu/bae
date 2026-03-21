@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-03-21
+
+### Changed
+- Auth preflight uses `claude auth status` instead of spawning a session — no API credits, no session pollution, instant check
+- Startup shows progress messages during preflight checks (`Checking for updates...`, `Checking Claude Code...`, `Verifying auth...`)
+
 ## [0.2.4] - 2026-03-21
 
 ### Added
@@ -183,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Factory-based initialization (`createBot`, `createBridge`)
 - Auto-create workspace directory, default `~/baesment`
 
-[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/neethanwu/bae/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/neethanwu/bae/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/neethanwu/bae/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/neethanwu/bae/compare/v0.2.1...v0.2.2
