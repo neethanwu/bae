@@ -367,6 +367,30 @@ async function consumeAllTurns(
 
 			if (event.kind === "result") {
 				resultEvent = event;
+
+				// Detect auth errors — surface actionable message to user
+				const resultLower = event.text?.toLowerCase() ?? "";
+				if (
+					resultLower.includes("not logged in") ||
+					resultLower.includes("/login")
+				) {
+					console.error(
+						"[bae] Agent auth error detected. Run `claude auth login` on the host machine.",
+					);
+					stopTyping();
+					if (isStreaming) {
+						endStream();
+						await postPromise;
+						isStreaming = false;
+					}
+					await thread.post(
+						"Bae's agent isn't logged in. The owner needs to run `claude auth login` on the host machine. Try again after that.",
+					);
+					resetTurnState();
+					startTyping();
+					continue;
+				}
+
 				if (!hasText && event.text) {
 					hasText = true;
 					logPreview = event.text.slice(0, LOG_PREVIEW_LEN);

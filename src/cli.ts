@@ -137,10 +137,22 @@ function readPidAndPort(): { pid: number; port: number } | null {
 	return Number.isNaN(pid) ? null : { pid, port };
 }
 
+function enableTimestampedLogs() {
+	const origLog = console.log;
+	const origErr = console.error;
+	const origWarn = console.warn;
+	const ts = () => new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
+	console.log = (...a: unknown[]) => origLog(`[${ts()}]`, ...a);
+	console.error = (...a: unknown[]) => origErr(`[${ts()}]`, ...a);
+	console.warn = (...a: unknown[]) => origWarn(`[${ts()}]`, ...a);
+}
+
 async function start() {
 	const flags = new Set(args.slice(1));
 	const daemon = flags.has("-d") || flags.has("--daemon");
 	const isDaemonChild = flags.has("--_daemon-child");
+
+	enableTimestampedLogs();
 
 	// Check for existing instance
 	const existing = readPidAndPort();
@@ -163,6 +175,31 @@ async function start() {
 	} catch {
 		console.error(
 			"claude not found. Install Claude Code first: https://docs.anthropic.com/s/claude-code",
+		);
+		process.exit(1);
+	}
+
+	// Preflight: verify Claude Code auth works
+	try {
+		const out = execSync('claude -p "ok" --max-turns 1 --output-format text', {
+			stdio: "pipe",
+			timeout: 30000,
+			env: { ...process.env, CLAUDECODE: undefined },
+		});
+		const text = out.toString().toLowerCase();
+		if (text.includes("not logged in") || text.includes("/login")) {
+			throw new Error("Not logged in");
+		}
+	} catch (e) {
+		const msg =
+			e instanceof Error && "stderr" in e ? String(e.stderr) : String(e);
+		console.error(
+			"Claude Code is not authenticated. Bae needs a working Claude session.\n\n" +
+				"  To fix, run this in your terminal:\n\n" +
+				"    claude auth login\n\n" +
+				"  Then restart Bae. If you're running headless/remotely, you may\n" +
+				"  need to log in from an interactive terminal first.\n" +
+				(msg.trim() ? `\n  Details: ${msg.trim().slice(0, 200)}\n` : ""),
 		);
 		process.exit(1);
 	}

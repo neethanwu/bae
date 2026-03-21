@@ -210,15 +210,23 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			// action === "reconfigure" — fall through to full init
 		}
 
-		// 1. Detect agent CLI
+		// 1. Detect agent CLI and verify auth
 		const agentInfo = detectAgent();
 		if (agentInfo) {
 			p.log.success(`${agentInfo.name} found (${agentInfo.version})`);
-			try {
-				execSync("claude auth status", { stdio: "pipe", timeout: 5000 });
-				p.log.success("claude authenticated");
-			} catch {
-				p.log.warn("claude may not be authenticated. Run: claude auth login");
+
+			// Verify Claude Code can actually respond (catches expired/missing auth)
+			const authOk = verifyAgentAuth();
+			if (authOk) {
+				p.log.success("Claude Code authenticated");
+			} else {
+				p.log.error(
+					"Claude Code is not authenticated. Bae won't be able to respond to messages.\n" +
+						"  Run this in your terminal:\n\n" +
+						"    claude auth login\n\n" +
+						"  Then run `bae init` again.",
+				);
+				process.exit(1);
 			}
 		} else {
 			p.log.warn(
@@ -593,6 +601,23 @@ function detectAgent(): AgentInfo | null {
 		};
 	} catch {
 		return null;
+	}
+}
+
+function verifyAgentAuth(): boolean {
+	try {
+		const out = execSync('claude -p "ok" --max-turns 1 --output-format text', {
+			stdio: "pipe",
+			timeout: 30000,
+			env: { ...process.env, CLAUDECODE: undefined },
+		});
+		const text = out.toString().toLowerCase();
+		if (text.includes("not logged in") || text.includes("/login")) {
+			return false;
+		}
+		return true;
+	} catch {
+		return false;
 	}
 }
 
