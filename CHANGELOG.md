@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-03-21
+
+### Added
+- Preflight auth check on `bae start` and `bae init` — verifies Claude Code can respond before booting
+- Runtime auth error detection — shows actionable message in channel instead of cryptic "/login" text
+- Timestamped logs (`HH:mm:ss.SSS`) for all `bae start` output
+- `bae upgrade` command — updates to latest version and restarts if running
+- Auto-update on `bae start` — checks npm and updates before booting
+- Live auto-update — checks npm every 6 hours while running, installs and restarts automatically
+- Auto-restart after `bae channel add/remove`, `bae workspace remove/set-executor`, and `bae init`
+- Auto-start bae after `bae init` completes (no manual `bae start` needed)
+
+### Changed
+- `bae start -d` promoted as recommended default in help text and all hints
+- Config changes no longer require manual restart — bae restarts itself
+- Typing indicator stops cleanly after agent reply (no more lingering "typing...")
+
+### Fixed
+- Typing indicator stuck for minutes after agent reply on Telegram
+- Auth error leaves typing indicator running — broken process stayed alive, steered messages caused minutes of phantom typing
+- Opt out of auto-updates with `BAE_NO_AUTO_UPDATE=1`
+
 ## [0.2.3] - 2026-03-20
 
 ### Added
@@ -161,7 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Factory-based initialization (`createBot`, `createBridge`)
 - Auto-create workspace directory, default `~/baesment`
 
-[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/neethanwu/bae/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/neethanwu/bae/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/neethanwu/bae/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/neethanwu/bae/compare/v0.2.0...v0.2.1
