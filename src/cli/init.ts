@@ -197,7 +197,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			});
 
 			if (p.isCancel(action) || action === "exit") {
-				p.outro("Run `bae start` to begin.");
+				p.outro("Run `bae start -d` to begin.");
 				return;
 			}
 

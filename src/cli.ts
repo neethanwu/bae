@@ -72,6 +72,9 @@ switch (command) {
 	case "channel":
 		await channel();
 		break;
+	case "upgrade":
+		await upgrade();
+		break;
 	case "--version":
 	case "-v":
 		console.log(`bae ${VERSION}`);
@@ -93,7 +96,8 @@ function printHelp() {
 
   Usage:
     bae init                      Guided setup wizard (start here!)
-    bae start [-d]                Start Bae (use -d for background mode)
+    bae start -d                  Start Bae in the background (recommended)
+    bae start                     Start Bae in the foreground
     bae stop                      Stop running Bae instance
     bae status                    Show running/stopped
 
@@ -106,6 +110,7 @@ function printHelp() {
     bae channel add <workspace>   Add a channel to a workspace
     bae channel remove <id>       Remove a channel
 
+    bae upgrade                   Update to latest version
     bae logs                      Tail daemon log file
 
   Options:
@@ -432,6 +437,20 @@ async function status() {
 
 	console.log(`Running (PID ${info.pid}) — health check failed`);
 	process.exit(0);
+}
+
+async function upgrade() {
+	const { autoUpdate } = await import("./cli/update-check.ts");
+	const updated = await autoUpdate(VERSION);
+	if (!updated) {
+		console.log(`bae ${VERSION} is already the latest version.`);
+		return;
+	}
+	const { restartIfRunning } = await import("./cli/restart.ts");
+	const restarted = restartIfRunning();
+	if (!restarted) {
+		console.log("Updated. Run `bae start -d` to use the new version.");
+	}
 }
 
 async function init() {
