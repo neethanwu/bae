@@ -6,20 +6,32 @@ import {
 } from "../credentials.ts";
 import type { Store } from "../session/store.ts";
 import type { Platform } from "../session/types.ts";
+import { restartIfRunning } from "./restart.ts";
+
+export interface ChannelCommandOptions {
+	/** Skip auto-restart (caller will handle it). */
+	skipRestart?: boolean;
+}
 
 export async function channelCommand(
 	args: string[],
 	store: Store,
+	options?: ChannelCommandOptions,
 ): Promise<void> {
 	const sub = args[0];
+	const shouldRestart = !options?.skipRestart;
 
 	switch (sub) {
 		case "list":
 			return listChannels(args.slice(1), store);
 		case "add":
-			return addChannel(args.slice(1), store);
+			await addChannel(args.slice(1), store);
+			if (shouldRestart) restartIfRunning();
+			return;
 		case "remove":
-			return removeChannel(args.slice(1), store);
+			await removeChannel(args.slice(1), store);
+			if (shouldRestart) restartIfRunning();
+			return;
 		case "help":
 		case "--help":
 		case "-h":
@@ -289,8 +301,6 @@ async function removeChannel(args: string[], store: Store): Promise<void> {
 		console.error(`Channel "${channelId}" not found.`);
 		process.exit(1);
 	}
-
-	checkNotRunning();
 
 	if (!force) {
 		const confirm = await p.confirm({
@@ -600,25 +610,5 @@ function validateUserId(id: string, platform: Platform): boolean {
 		case "imessage":
 			// Phone numbers (+1234567890) or email addresses
 			return /^\+\d+$/.test(id) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
-	}
-}
-
-function checkNotRunning(): void {
-	const { existsSync, readFileSync } = require("node:fs");
-	const { join } = require("node:path");
-	const { homedir } = require("node:os");
-	const pidFile = join(homedir(), ".bae", "bae.pid");
-	if (!existsSync(pidFile)) return;
-	const raw = readFileSync(pidFile, "utf-8").trim();
-	const pid = Number.parseInt(raw.split(":")[0] ?? "", 10);
-	if (Number.isNaN(pid)) return;
-	try {
-		process.kill(pid, 0);
-		console.error(
-			`Bae is running (PID ${pid}). Stop it first with \`bae stop\`.`,
-		);
-		process.exit(1);
-	} catch {
-		// Not running
 	}
 }

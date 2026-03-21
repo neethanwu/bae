@@ -7,6 +7,7 @@ import { writeChannelCredentials } from "../credentials.ts";
 import { Store } from "../session/store.ts";
 import type { Platform } from "../session/types.ts";
 import { parseEnvFile } from "./env.ts";
+import { restartIfRunning, startIfNotRunning } from "./restart.ts";
 import { slugFromPath } from "./workspace.ts";
 
 const BAE_DIR = join(homedir(), ".bae");
@@ -149,7 +150,8 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			});
 
 			console.log(`Ready! ${displayName} → ${workspace} (workspace: ${slug})`);
-			console.log("Run `bae start` to begin.");
+			const restarted = restartIfRunning();
+			if (!restarted) startIfNotRunning();
 			return;
 		}
 
@@ -202,8 +204,9 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			if (action === "add-channel") {
 				// Jump directly to channel add flow
 				const { channelCommand } = await import("./channel.ts");
-				await channelCommand(["add"], store);
-				p.outro("Run `bae start` to begin.");
+				await channelCommand(["add"], store, { skipRestart: true });
+				const restarted = restartIfRunning();
+				if (!restarted) startIfNotRunning();
 				return;
 			}
 
@@ -562,8 +565,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 
 			// Import and run the channel add flow
 			const { channelCommand } = await import("./channel.ts");
-			const channelStore = store;
-			await channelCommand(["add", slug], channelStore);
+			await channelCommand(["add", slug], store, { skipRestart: true });
 			channelSummaries.push("(added via channel add)");
 		}
 
@@ -577,7 +579,8 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			].join("\n"),
 			"You're all set!",
 		);
-		p.outro("Run `bae start` to begin.");
+		const restarted = restartIfRunning();
+		if (!restarted) startIfNotRunning();
 	} finally {
 		store.close();
 	}

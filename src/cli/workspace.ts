@@ -4,6 +4,7 @@ import { basename, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import type { Store } from "../session/store.ts";
 import type { ExecutorType } from "../session/types.ts";
+import { restartIfRunning } from "./restart.ts";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const BAE_DIR_PATH = resolve(homedir(), ".bae");
@@ -195,6 +196,8 @@ async function addWorkspace(args: string[], store: Store): Promise<void> {
 			executor,
 		});
 		console.log(`Workspace "${ws.id}" created at ${ws.path}`);
+		// Don't restart here — workspace alone has no channels to boot.
+		// Restart happens when a channel is added to this workspace.
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		if (msg.includes("UNIQUE") && msg.includes("path")) {
@@ -222,9 +225,6 @@ async function removeWorkspace(args: string[], store: Store): Promise<void> {
 		process.exit(1);
 	}
 
-	// Check for running BAE instance
-	checkNotRunning();
-
 	if (!flags.force) {
 		const channels = store.getChannelsByWorkspace(slug);
 		const confirm = await p.confirm({
@@ -245,6 +245,7 @@ async function removeWorkspace(args: string[], store: Store): Promise<void> {
 
 	store.deleteWorkspace(slug);
 	console.log(`Workspace "${slug}" deleted.`);
+	restartIfRunning();
 }
 
 async function setExecutor(args: string[], store: Store): Promise<void> {
@@ -267,6 +268,7 @@ async function setExecutor(args: string[], store: Store): Promise<void> {
 	console.log(
 		`Workspace "${slug}" executor set to "${executor}". Session history cleared.`,
 	);
+	restartIfRunning();
 }
 
 /** Derive a slug from a workspace path basename. */
@@ -277,24 +279,4 @@ export function slugFromPath(p: string): string {
 		.replace(/-+/g, "-")
 		.replace(/^-|-$/g, "");
 	return name || "default";
-}
-
-function checkNotRunning(): void {
-	const { existsSync: exists, readFileSync } = require("node:fs");
-	const { join } = require("node:path");
-	const { homedir: home } = require("node:os");
-	const pidFile = join(home(), ".bae", "bae.pid");
-	if (!exists(pidFile)) return;
-	const raw = readFileSync(pidFile, "utf-8").trim();
-	const pid = Number.parseInt(raw.split(":")[0] ?? "", 10);
-	if (Number.isNaN(pid)) return;
-	try {
-		process.kill(pid, 0);
-		console.error(
-			`Bae is running (PID ${pid}). Stop it first with \`bae stop\`.`,
-		);
-		process.exit(1);
-	} catch {
-		// Not running — stale PID file, fine to proceed
-	}
 }
