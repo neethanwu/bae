@@ -168,11 +168,11 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	}
 
 	let platform: Platform;
-	const VALID_PLATFORMS = new Set(["telegram", "slack", "imessage"]);
+	const VALID_PLATFORMS = new Set(["telegram", "slack", "imessage", "wechat"]);
 	if (flags.platform) {
 		if (!VALID_PLATFORMS.has(flags.platform)) {
 			console.error(
-				`Unsupported platform: "${flags.platform}"\nAvailable: telegram, slack, imessage`,
+				`Unsupported platform: "${flags.platform}"\nAvailable: telegram, slack, imessage, wechat`,
 			);
 			process.exit(1);
 		}
@@ -188,6 +188,7 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 			{ value: "telegram", label: "Telegram" },
 			{ value: "slack", label: "Slack" },
 		];
+		allPlatforms.push({ value: "wechat", label: "WeChat" });
 		if (process.platform === "darwin") {
 			allPlatforms.push({
 				value: "imessage",
@@ -517,6 +518,22 @@ async function promptCredentials(
 			// No API tokens needed — write a marker so startup doesn't skip this channel
 			return { BAE_LOCAL_MODE: "true" };
 		}
+		case "wechat": {
+			const { loginWithQr, DEFAULT_BASE_URL } = await import(
+				"../platform/wechat/auth.ts"
+			);
+			p.log.info(
+				"WeChat login requires scanning a QR code with your WeChat app.\n" +
+					"The QR code will appear in your terminal. If it doesn't render correctly,\n" +
+					"a URL fallback will be printed.",
+			);
+			const result = await loginWithQr(DEFAULT_BASE_URL);
+			p.log.success("Connected to WeChat!");
+			return {
+				WECHAT_BOT_TOKEN: result.token,
+				WECHAT_BASE_URL: result.baseUrl,
+			};
+		}
 	}
 }
 
@@ -598,6 +615,21 @@ async function validateCredentials(
 			}
 			break;
 		}
+		case "wechat": {
+			const token = creds.WECHAT_BOT_TOKEN;
+			if (!token) throw new Error("Missing WECHAT_BOT_TOKEN");
+			try {
+				const { getUpdates } = await import("../platform/wechat/api.ts");
+				const baseUrl =
+					creds.WECHAT_BASE_URL ?? "https://ilinkai.weixin.qq.com";
+				await getUpdates({ baseUrl, token }, "");
+				p.log.success("WeChat connection verified");
+			} catch {
+				console.error("Failed to validate WeChat credentials.");
+				process.exit(1);
+			}
+			break;
+		}
 	}
 }
 
@@ -610,5 +642,8 @@ function validateUserId(id: string, platform: Platform): boolean {
 		case "imessage":
 			// Phone numbers (+1234567890) or email addresses
 			return /^\+\d+$/.test(id) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
+		case "wechat":
+			// WeChat user IDs: hex string @im.wechat
+			return /^[a-f0-9]+@im\.wechat$/i.test(id);
 	}
 }

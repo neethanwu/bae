@@ -5,6 +5,7 @@ import { createIMessageChannel } from "./platform/imessage.ts";
 import { createSlackChannel } from "./platform/slack.ts";
 import { telegramThread } from "./platform/telegram.ts";
 import type { ChannelHandle, PlatformThread } from "./platform/types.ts";
+import { createWeChatChannel } from "./platform/wechat/channel.ts";
 import type { Platform } from "./session/types.ts";
 import { createRetryState } from "./state.ts";
 
@@ -42,6 +43,13 @@ export function createChannel(options: CreateChannelOptions): ChannelHandle {
 			});
 		case "imessage":
 			return createIMessageChannel({
+				channelId: options.channelId,
+				onMessage,
+			});
+		case "wechat":
+			return createWeChatChannel({
+				baseUrl: credentials.WECHAT_BASE_URL ?? "https://ilinkai.weixin.qq.com",
+				token: credentials.WECHAT_BOT_TOKEN ?? "",
 				channelId: options.channelId,
 				onMessage,
 			});
