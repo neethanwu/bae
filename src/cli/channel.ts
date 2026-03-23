@@ -45,7 +45,7 @@ export async function channelCommand(
     remove <channel-id>     Remove a channel
 
   Options (add):
-    --platform <name>    Platform: telegram, slack, imessage
+    --platform <name>    Platform: telegram, slack, imessage, wechat
     --label <text>       Display label for the channel
 
   Options (list):

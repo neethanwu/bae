@@ -169,7 +169,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		const workspaces = store.listWorkspaces();
 		if (workspaces.length > 0) {
 			// Check if there are unconfigured platforms across any workspace
-			const allPlatforms = ["telegram", "slack"];
+			const allPlatforms = ["telegram", "slack", "wechat"];
 			if (process.platform === "darwin") allPlatforms.push("imessage");
 
 			const hasAvailableChannel = workspaces.some((ws) => {
@@ -241,6 +241,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		const platformOptions: { value: string; label: string }[] = [
 			{ value: "telegram", label: "Telegram" },
 			{ value: "slack", label: "Slack" },
+			{ value: "wechat", label: "WeChat" },
 		];
 		if (process.platform === "darwin") {
 			platformOptions.push({
