@@ -125,12 +125,13 @@ Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 ## Usage
 
 ```bash
-bae start -d       # Start in background (recommended)
-bae start          # Start in foreground (see all logs)
-bae stop           # Stop the daemon
-bae status         # Check if running
-bae logs           # Tail daemon logs
-bae upgrade        # Update to latest version (restarts if running)
+bae start -d              # Start in background (recommended)
+bae start                 # Start in foreground (see all logs)
+bae start --port 8080     # Use a custom port (default: 19456)
+bae stop                  # Stop the daemon
+bae status                # Check if running
+bae logs                  # Tail daemon logs
+bae upgrade               # Update to latest version (restarts if running)
 ```
 
 ### Commands in chat
@@ -194,6 +195,8 @@ All connections are **outbound** — Bae never needs a public URL, tunnel, or we
 ## Updates
 
 Bae auto-updates on every `bae start` and checks for new versions every 6 hours while running. Updates install and restart automatically — no manual intervention needed. Opt out with `BAE_NO_AUTO_UPDATE=1`.
+
+On macOS and Linux (with systemd), `bae start -d` uses the OS-native process supervisor (launchd / systemd) to automatically restart the daemon after crashes or system sleep. On other platforms, Bae falls back to a standard background process.
 
 ## Status
 
