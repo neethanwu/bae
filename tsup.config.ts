@@ -5,7 +5,7 @@ const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
 
 export default defineConfig([
 	{
-		entry: ["src/cli.ts"],
+		entry: { bae: "src/cli.ts" },
 		format: ["esm"],
 		target: "node20",
 		platform: "node",

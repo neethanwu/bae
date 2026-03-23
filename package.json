@@ -20,7 +20,7 @@
   "module": "src/index.ts",
   "type": "module",
   "bin": {
-    "bae": "./dist/cli.js"
+    "bae": "./dist/bae.js"
   },
   "exports": {
     ".": {

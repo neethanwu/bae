@@ -1,90 +1,116 @@
-import { execSync, spawn } from "node:child_process";
-import { existsSync, openSync, readFileSync, unlinkSync } from "node:fs";
+/**
+ * Restart/start helpers for CLI commands that modify config.
+ *
+ * Uses the OS-native supervisor if installed (launchd/systemd),
+ * falls back to legacy detached spawn otherwise.
+ */
+
+import { execSync } from "node:child_process";
+import { existsSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+	isProcessAlive,
+	readPidFile,
+	SpawnSupervisor,
+	type Supervisor,
+} from "./supervisor.ts";
+import { LaunchdSupervisor } from "./supervisor-launchd.ts";
+import { SystemdSupervisor } from "./supervisor-systemd.ts";
 
 const BAE_DIR = join(homedir(), ".bae");
 const PID_FILE = join(BAE_DIR, "bae.pid");
-const LOG_FILE = join(BAE_DIR, "bae.log");
 
-function getRunningPid(): number | null {
-	if (!existsSync(PID_FILE)) return null;
-	const raw = readFileSync(PID_FILE, "utf-8").trim();
-	const pid = Number.parseInt(raw.split(":")[0] ?? "", 10);
-	if (Number.isNaN(pid)) return null;
-	try {
-		process.kill(pid, 0);
-		return pid;
-	} catch {
-		return null;
+/**
+ * Get the installed supervisor, if any.
+ * Checks for installed plist/unit files rather than platform detection,
+ * so this works without knowing the VERSION (dev mode check).
+ */
+function getInstalledSupervisor(): Supervisor | null {
+	if (process.platform === "darwin") {
+		const s = new LaunchdSupervisor();
+		if (s.isInstalled()) return s;
 	}
+	if (process.platform === "linux" && existsSync("/run/systemd/system")) {
+		const s = new SystemdSupervisor();
+		if (s.isInstalled()) return s;
+	}
+	return null;
 }
 
 /**
  * If bae is running, restart it so config changes take effect.
- * Sends SIGTERM, waits for exit, then spawns a new daemon child.
+ * Uses supervisor if installed, otherwise falls back to legacy spawn.
  * Returns true if a restart was performed.
  */
 export function restartIfRunning(): boolean {
-	const pid = getRunningPid();
-	if (pid === null) return false;
+	const supervisor = getInstalledSupervisor();
+
+	if (supervisor) {
+		if (!supervisor.isRunning()) return false;
+		console.log("Restarting bae to apply changes...");
+		supervisor.restart();
+		console.log("Bae restarted — up and running with changes applied.");
+		return true;
+	}
+
+	// Legacy fallback: PID-based restart
+	const info = readPidFile();
+	if (!info || !isProcessAlive(info.pid)) return false;
 
 	console.log("Restarting bae to apply changes...");
 
-	// Stop the running process
-	process.kill(pid, "SIGTERM");
+	process.kill(info.pid, "SIGTERM");
 	let waited = 0;
 	while (waited < 5000) {
-		try {
-			process.kill(pid, 0);
-		} catch {
-			break; // Process exited
-		}
+		if (!isProcessAlive(info.pid)) break;
 		execSync("sleep 0.1", { stdio: "ignore" });
 		waited += 100;
 	}
 
-	// Force kill if still alive
 	if (waited >= 5000) {
 		try {
-			process.kill(pid, "SIGKILL");
+			process.kill(info.pid, "SIGKILL");
 		} catch {}
 	}
 
-	// Clean up stale PID file
 	try {
 		unlinkSync(PID_FILE);
 	} catch {}
 
-	spawnDaemon();
+	const fallback = new SpawnSupervisor();
+	fallback.start();
 	console.log(
-		`Bae restarted (PID ${lastSpawnedPid}) — up and running with changes applied.`,
+		`Bae restarted (PID ${fallback.getLastSpawnedPid()}) — up and running with changes applied.`,
 	);
 	return true;
 }
 
-let lastSpawnedPid: number | undefined;
-
-function spawnDaemon(): void {
-	const logFd = openSync(LOG_FILE, "a");
-	const child = spawn(
-		process.execPath,
-		[process.argv[1] ?? "", "start", "--_daemon-child"],
-		{ detached: true, stdio: ["ignore", logFd, logFd] },
-	);
-	child.unref();
-	lastSpawnedPid = child.pid;
-}
-
 /**
  * Start bae as a daemon if it's not already running.
+ * Uses supervisor if installed, otherwise falls back to legacy spawn.
  * Returns true if started.
  */
 export function startIfNotRunning(): boolean {
-	const pid = getRunningPid();
-	if (pid !== null) return false;
+	const supervisor = getInstalledSupervisor();
 
-	spawnDaemon();
-	console.log(`Bae started (PID ${lastSpawnedPid}). Logs: ~/.bae/bae.log`);
+	if (supervisor) {
+		if (supervisor.isRunning()) return false;
+		supervisor.start();
+		console.log(
+			`Bae started (managed by ${supervisor.type}). Logs: ~/.bae/bae.log`,
+		);
+		return true;
+	}
+
+	// Legacy fallback
+	const info = readPidFile();
+	if (info && isProcessAlive(info.pid)) return false;
+
+	const fallback = new SpawnSupervisor();
+	fallback.start();
+	console.log(
+		`Bae started (PID ${fallback.getLastSpawnedPid()}). Logs: ~/.bae/bae.log`,
+	);
 	return true;
 }

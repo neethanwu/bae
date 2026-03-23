@@ -146,7 +146,7 @@ function installUpdate(currentVersion: string, latest: string): boolean {
 /**
  * Schedule periodic update checks for a running server.
  * When an update is found, installs it, gracefully shuts down,
- * and re-spawns as a daemon child with the new code.
+ * and restarts via supervisor (or self-spawn for legacy mode).
  */
 export function scheduleAutoUpdate(
 	currentVersion: string,
@@ -164,10 +164,28 @@ export function scheduleAutoUpdate(
 			const updated = installUpdate(currentVersion, latest);
 			if (!updated) return;
 
-			console.log("[bae] Restarting with new version...");
+			console.log("[bae] Update installed. Restarting...");
 			await onRestart();
 
-			// Spawn a new daemon child with the updated code
+			// Check if we're running under an OS-native supervisor
+			const { LaunchdSupervisor } = await import("./supervisor-launchd.ts");
+			const { SystemdSupervisor } = await import("./supervisor-systemd.ts");
+
+			let hasSupervisor = false;
+			if (process.platform === "darwin") {
+				hasSupervisor = new LaunchdSupervisor().isInstalled();
+			} else if (process.platform === "linux") {
+				hasSupervisor = new SystemdSupervisor().isInstalled();
+			}
+
+			if (hasSupervisor) {
+				// Exit non-zero so the supervisor restarts with the updated binary.
+				// KeepAlive.SuccessfulExit=false (launchd) / Restart=on-failure (systemd)
+				// will trigger a restart on non-zero exit.
+				process.exit(75); // EX_TEMPFAIL
+			}
+
+			// Legacy fallback: spawn a new daemon child with updated code
 			const { spawn } = await import("node:child_process");
 			const logFd = openSync(join(homedir(), ".bae", "bae.log"), "a");
 			const child = spawn(

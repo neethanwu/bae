@@ -96,7 +96,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		if (flags.token && flags["allowed-users"]) {
 			const platform = (flags.platform ?? "telegram") as Platform;
 			const workspace = flags.workspace || join(homedir(), "baesment");
-			const port = existing.BAE_PORT || "3456";
+			const port = existing.BAE_PORT || "19456";
 			const userIds = flags["allowed-users"].split(",").map((s) => s.trim());
 
 			let credentials: Record<string, string>;
@@ -538,7 +538,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 		}
 
 		// 6. Write config
-		const port = existing.BAE_PORT || "3456";
+		const port = existing.BAE_PORT || "19456";
 		writeGlobalConfig(port);
 
 		const { slug } = await setupWorkspaceAndChannel({

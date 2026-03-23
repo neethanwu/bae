@@ -1,12 +1,7 @@
-import {
-	type ChildProcess,
-	spawn as cpSpawn,
-	execSync,
-} from "node:child_process";
+import { spawn as cpSpawn, execSync } from "node:child_process";
 import {
 	existsSync,
 	mkdirSync,
-	openSync,
 	readFileSync,
 	unlinkSync,
 	writeFileSync,
@@ -14,6 +9,11 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { loadEnvFile } from "./cli/env.ts";
+import {
+	detectSupervisor,
+	isProcessAlive,
+	readPidFile,
+} from "./cli/supervisor.ts";
 import {
 	autoUpdate,
 	checkForUpdates,
@@ -27,19 +27,19 @@ const LOG_FILE = join(BAE_DIR, "bae.log");
 declare const __VERSION__: string;
 // __VERSION__ is injected by tsup at build time. When running from source
 // (bun src/cli.ts), fall back to reading package.json.
-const VERSION =
-	typeof __VERSION__ !== "undefined"
-		? __VERSION__
-		: (() => {
-				try {
-					const pkg = JSON.parse(
-						readFileSync(join(import.meta.dir, "..", "package.json"), "utf-8"),
-					);
-					return pkg.version ?? "0.0.0";
-				} catch {
-					return "0.0.0";
-				}
-			})();
+const IS_BUILT = typeof __VERSION__ !== "undefined";
+const VERSION = IS_BUILT
+	? __VERSION__
+	: (() => {
+			try {
+				const pkg = JSON.parse(
+					readFileSync(join(import.meta.dir, "..", "package.json"), "utf-8"),
+				);
+				return pkg.version ?? "0.0.0";
+			} catch {
+				return "0.0.0";
+			}
+		})();
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -98,6 +98,7 @@ function printHelp() {
     bae init                      Guided setup wizard (start here!)
     bae start -d                  Start Bae in the background (recommended)
     bae start                     Start Bae in the foreground
+    bae start --port 8080         Use a custom port (default: 19456)
     bae stop                      Stop running Bae instance
     bae status                    Show running/stopped
 
@@ -128,24 +129,6 @@ function logs() {
 	process.on("SIGINT", () => tail.kill());
 }
 
-function isProcessAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-function readPidAndPort(): { pid: number; port: number } | null {
-	if (!existsSync(PID_FILE)) return null;
-	const raw = readFileSync(PID_FILE, "utf-8").trim();
-	const parts = raw.split(":");
-	const pid = Number.parseInt(parts[0] ?? "", 10);
-	const port = Number.parseInt(parts[1] ?? "", 10) || 3456;
-	return Number.isNaN(pid) ? null : { pid, port };
-}
-
 function enableTimestampedLogs() {
 	const origLog = console.log;
 	const origErr = console.error;
@@ -157,29 +140,49 @@ function enableTimestampedLogs() {
 }
 
 async function start() {
-	const flags = new Set(args.slice(1));
+	const startArgs = args.slice(1);
+	const flags = new Set(startArgs);
 	const daemon = flags.has("-d") || flags.has("--daemon");
 	const isDaemonChild = flags.has("--_daemon-child");
+	const isSupervised = flags.has("--_supervised");
+
+	// Parse --port <number> from args
+	const portFlagIdx = startArgs.indexOf("--port");
+	const cliPort =
+		portFlagIdx !== -1
+			? Number.parseInt(startArgs[portFlagIdx + 1] ?? "", 10)
+			: undefined;
 
 	enableTimestampedLogs();
 
-	// Check for existing instance
-	const existing = readPidAndPort();
-	if (existing !== null && isProcessAlive(existing.pid)) {
-		console.error(`Bae is already running (PID ${existing.pid}).`);
-		process.exit(1);
-	}
-	if (existing !== null) {
-		unlinkSync(PID_FILE);
+	// Check for existing instance (skip when launched by supervisor)
+	if (!isSupervised && !isDaemonChild) {
+		const supervisor = detectSupervisor(IS_BUILT);
+		if (supervisor.type !== "spawn" && supervisor.isRunning()) {
+			console.error("Bae is already running (managed by %s).", supervisor.type);
+			process.exit(1);
+		}
+		const existing = readPidFile();
+		if (existing !== null && isProcessAlive(existing.pid)) {
+			console.error(`Bae is already running (PID ${existing.pid}).`);
+			process.exit(1);
+		}
+		if (existing !== null) {
+			unlinkSync(PID_FILE);
+		}
 	}
 
 	// Load global config (BAE_PORT only)
 	loadEnvFile(ENV_FILE);
 
-	const port = Number(process.env.BAE_PORT) || 3456;
+	const port = cliPort || Number(process.env.BAE_PORT) || 19456;
 
-	// Auto-update before booting (parent only — daemon child uses updated code)
-	if (!isDaemonChild) {
+	if (cliPort) {
+		process.env.BAE_PORT = String(cliPort);
+	}
+
+	// Auto-update before booting (parent only — daemon child/supervised uses updated code)
+	if (!isDaemonChild && !isSupervised) {
 		console.log("[bae] Checking for updates...");
 		await autoUpdate(VERSION);
 	}
@@ -220,34 +223,53 @@ async function start() {
 
 	mkdirSync(BAE_DIR, { recursive: true, mode: 0o700 });
 
-	// Daemon mode
+	// Daemon mode: delegate to supervisor
 	if (daemon) {
-		const logPath = join(BAE_DIR, "bae.log");
-		const logFd = openSync(logPath, "a");
+		const supervisor = detectSupervisor(IS_BUILT);
 
-		const child: ChildProcess = cpSpawn(
-			process.execPath,
-			[process.argv[1] ?? "", "start", "--_daemon-child"],
-			{
-				detached: true,
-				stdio: ["ignore", logFd, logFd],
-				env: process.env as Record<string, string>,
-			},
-		);
+		if (supervisor.type !== "spawn") {
+			// OS-native supervisor (launchd/systemd)
+			try {
+				supervisor.install({ port: cliPort });
+				supervisor.start();
+				console.log(
+					`Bae started (managed by ${supervisor.type}). Logs: ~/.bae/bae.log`,
+				);
+			} catch (err) {
+				console.error(
+					`[bae] ${supervisor.type} failed: ${err instanceof Error ? err.message : String(err)}`,
+				);
+				console.error("[bae] Falling back to detached spawn...");
+				// Fall back to SpawnSupervisor
+				const { SpawnSupervisor } = await import("./cli/supervisor.ts");
+				const fallback = new SpawnSupervisor();
+				fallback.start();
+				await new Promise((resolve) => setTimeout(resolve, 500));
+				const pid = fallback.getLastSpawnedPid();
+				console.log(`Bae started (PID ${pid}). Logs: ~/.bae/bae.log`);
+			}
+			process.exit(0);
+		}
 
-		child.unref();
+		// SpawnSupervisor fallback (Windows, no-systemd Linux, dev mode)
+		const { SpawnSupervisor } = await import("./cli/supervisor.ts");
+		const spawn = new SpawnSupervisor();
+		spawn.start();
 		await new Promise((resolve) => setTimeout(resolve, 500));
 
-		if (child.exitCode !== null) {
+		if (!spawn.isRunning() && !spawn.getLastSpawnedPid()) {
 			console.error("Bae failed to start. Check ~/.bae/bae.log");
 			process.exit(1);
 		}
 
-		console.log(`Bae started (PID ${child.pid}). Logs: ~/.bae/bae.log`);
+		console.log(
+			`Bae started (PID ${spawn.getLastSpawnedPid()}). Logs: ~/.bae/bae.log`,
+		);
 		process.exit(0);
 	}
 
-	if (isDaemonChild) {
+	// Running as daemon child or supervised process
+	if (isDaemonChild || isSupervised) {
 		process.on("SIGHUP", () => {});
 	}
 
@@ -376,7 +398,26 @@ async function start() {
 }
 
 function stop() {
-	const info = readPidAndPort();
+	const supervisor = detectSupervisor(IS_BUILT);
+
+	// If supervisor is installed, use it to stop cleanly
+	if (supervisor.type !== "spawn" && supervisor.isInstalled()) {
+		const wasRunning = supervisor.isRunning();
+		supervisor.uninstall(); // bootout + delete config — bae start -d reinstalls
+		// Clean up PID file
+		try {
+			unlinkSync(PID_FILE);
+		} catch {}
+		if (wasRunning) {
+			console.log("Bae stopped.");
+		} else {
+			console.log("Bae is not running.");
+		}
+		process.exit(wasRunning ? 0 : 1);
+	}
+
+	// Fallback: PID-based stop (SpawnSupervisor or legacy daemon)
+	const info = readPidFile();
 	if (info === null) {
 		console.log("Bae is not running.");
 		process.exit(1);
@@ -416,26 +457,42 @@ function stop() {
 }
 
 async function status() {
-	const info = readPidAndPort();
-	if (!info || !isProcessAlive(info.pid)) {
+	const supervisor = detectSupervisor(IS_BUILT);
+	const managed =
+		supervisor.type !== "spawn" && supervisor.isInstalled()
+			? supervisor.type
+			: null;
+
+	const info = readPidFile();
+	const alive = info && isProcessAlive(info.pid);
+
+	if (!alive && !(managed && supervisor.isRunning())) {
 		if (info) {
 			try {
 				unlinkSync(PID_FILE);
 			} catch {}
 		}
-		console.log("Stopped");
+		const suffix = managed ? ` (${managed} installed but not running)` : "";
+		console.log(`Stopped${suffix}`);
 		process.exit(1);
 	}
 
+	const port = info?.port ?? 19456;
+	const pid = info?.pid;
+
 	try {
-		const res = await fetch(`http://127.0.0.1:${info.port}/health`);
+		const res = await fetch(`http://127.0.0.1:${port}/health`);
 		if (res.ok) {
-			console.log(`Running (PID ${info.pid}, port ${info.port})`);
+			const managedSuffix = managed ? `, managed by ${managed}` : "";
+			console.log(`Running (PID ${pid ?? "?"}, port ${port}${managedSuffix})`);
 			process.exit(0);
 		}
 	} catch {}
 
-	console.log(`Running (PID ${info.pid}) — health check failed`);
+	const managedSuffix = managed ? `, managed by ${managed}` : "";
+	console.log(
+		`Running (PID ${pid ?? "?"}${managedSuffix}) — health check failed`,
+	);
 	process.exit(0);
 }
 
