@@ -1,6 +1,6 @@
 {
   "name": "bae-bridge",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Bridge your messaging apps to CLI coding agents",
   "author": "Neethan Wu <neethan>",
   "license": "Apache-2.0",

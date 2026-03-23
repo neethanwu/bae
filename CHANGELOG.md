@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-03-22
+
+### Added
+- WeChat platform adapter via Tencent iLink Bot API (HTTP long-polling, QR code login, text-only v1)
+- OS-native process supervisor — `bae start -d` uses launchd (macOS) or systemd (Linux) for auto-restart on crash
+- `--port` flag for `bae start` to override default port
+
 ## [0.2.5] - 2026-03-21
 
 ### Changed
@@ -189,7 +196,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Factory-based initialization (`createBot`, `createBridge`)
 - Auto-create workspace directory, default `~/baesment`
 
-[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/neethanwu/bae/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/neethanwu/bae/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/neethanwu/bae/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/neethanwu/bae/compare/v0.2.2...v0.2.3
