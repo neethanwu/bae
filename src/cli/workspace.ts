@@ -4,7 +4,7 @@ import { basename, resolve } from "node:path";
 import * as p from "@clack/prompts";
 import type { Store } from "../session/store.ts";
 import type { ExecutorType } from "../session/types.ts";
-import { restartIfRunning } from "./restart.ts";
+import { isBaeRunning, restartIfRunning } from "./restart.ts";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const BAE_DIR_PATH = resolve(homedir(), ".bae");
@@ -129,31 +129,7 @@ function parseWorkspaceFlags(argv: string[]): {
 async function addWorkspace(args: string[], store: Store): Promise<void> {
 	const flags = parseWorkspaceFlags(args);
 
-	let slug = flags.slug;
-	if (!slug) {
-		const slugInput = await p.text({
-			message: "Workspace slug (short name):",
-			placeholder: "my-project",
-			validate: (val) => {
-				if (!val) return "Slug is required";
-				if (!SLUG_RE.test(val))
-					return "Must be lowercase alphanumeric with hyphens, 1-32 chars";
-			},
-		});
-		if (p.isCancel(slugInput)) {
-			p.cancel("Cancelled.");
-			process.exit(0);
-		}
-		slug = slugInput;
-	}
-
-	if (!SLUG_RE.test(slug)) {
-		console.error(
-			`Invalid slug "${slug}". Must be lowercase alphanumeric with hyphens, 1-32 chars.`,
-		);
-		process.exit(1);
-	}
-
+	// Path first, then slug (smart defaults)
 	let path = flags.path;
 	if (!path) {
 		const pathInput = await p.text({
@@ -180,6 +156,34 @@ async function addWorkspace(args: string[], store: Store): Promise<void> {
 		process.exit(1);
 	}
 
+	// Slug with smart default derived from path
+	let slug = flags.slug;
+	if (!slug) {
+		const defaultSlug = slugFromPath(expanded);
+		const slugInput = await p.text({
+			message: "Workspace slug (short name):",
+			defaultValue: defaultSlug,
+			placeholder: defaultSlug,
+			validate: (val) => {
+				const v = val || defaultSlug;
+				if (!SLUG_RE.test(v))
+					return "Must be lowercase alphanumeric with hyphens, 1-32 chars";
+			},
+		});
+		if (p.isCancel(slugInput)) {
+			p.cancel("Cancelled.");
+			process.exit(0);
+		}
+		slug = slugInput;
+	}
+
+	if (!SLUG_RE.test(slug)) {
+		console.error(
+			`Invalid slug "${slug}". Must be lowercase alphanumeric with hyphens, 1-32 chars.`,
+		);
+		process.exit(1);
+	}
+
 	const name = flags.name ?? slug;
 	const executor = (flags.executor ?? "claude-code") as ExecutorType;
 
@@ -196,8 +200,6 @@ async function addWorkspace(args: string[], store: Store): Promise<void> {
 			executor,
 		});
 		console.log(`Workspace "${ws.id}" created at ${ws.path}`);
-		// Don't restart here — workspace alone has no channels to boot.
-		// Restart happens when a channel is added to this workspace.
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		if (msg.includes("UNIQUE") && msg.includes("path")) {
@@ -208,6 +210,16 @@ async function addWorkspace(args: string[], store: Store): Promise<void> {
 			console.error(`Failed to create workspace: ${msg}`);
 		}
 		process.exit(1);
+	}
+
+	// Offer to add a channel
+	const addChannel = await p.confirm({
+		message: "Add a channel now?",
+		initialValue: true,
+	});
+	if (!p.isCancel(addChannel) && addChannel) {
+		const { channelCommand } = await import("./channel.ts");
+		await channelCommand(["add", slug], store);
 	}
 }
 
@@ -245,7 +257,7 @@ async function removeWorkspace(args: string[], store: Store): Promise<void> {
 
 	store.deleteWorkspace(slug);
 	console.log(`Workspace "${slug}" deleted.`);
-	restartIfRunning();
+	if (isBaeRunning()) restartIfRunning();
 }
 
 async function setExecutor(args: string[], store: Store): Promise<void> {
@@ -268,7 +280,7 @@ async function setExecutor(args: string[], store: Store): Promise<void> {
 	console.log(
 		`Workspace "${slug}" executor set to "${executor}". Session history cleared.`,
 	);
-	restartIfRunning();
+	if (isBaeRunning()) restartIfRunning();
 }
 
 /** Derive a slug from a workspace path basename. */

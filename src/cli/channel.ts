@@ -6,11 +6,31 @@ import {
 } from "../credentials.ts";
 import type { Store } from "../session/store.ts";
 import type { Platform } from "../session/types.ts";
-import { restartIfRunning } from "./restart.ts";
+import {
+	isBaeRunning,
+	restartIfRunning,
+	startIfNotRunning,
+} from "./restart.ts";
 
 export interface ChannelCommandOptions {
 	/** Skip auto-restart (caller will handle it). */
 	skipRestart?: boolean;
+}
+
+async function handlePostChange(): Promise<void> {
+	if (isBaeRunning()) {
+		restartIfRunning();
+	} else {
+		const shouldStart = await p.confirm({
+			message: "Start Bae now?",
+			initialValue: true,
+		});
+		if (!p.isCancel(shouldStart) && shouldStart) {
+			startIfNotRunning();
+		} else {
+			p.log.info("Run `bae start -d` when you're ready.");
+		}
+	}
 }
 
 export async function channelCommand(
@@ -26,11 +46,11 @@ export async function channelCommand(
 			return listChannels(args.slice(1), store);
 		case "add":
 			await addChannel(args.slice(1), store);
-			if (shouldRestart) restartIfRunning();
+			if (shouldRestart) await handlePostChange();
 			return;
 		case "remove":
 			await removeChannel(args.slice(1), store);
-			if (shouldRestart) restartIfRunning();
+			if (shouldRestart) await handlePostChange();
 			return;
 		case "help":
 		case "--help":
@@ -143,22 +163,31 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 			);
 			process.exit(1);
 		}
-		if (workspaces.length === 1 && workspaces[0]) {
-			workspaceSlug = workspaces[0].id;
-		} else {
-			const wsChoice = await p.select({
-				message: "Select workspace:",
-				options: workspaces.map((ws) => ({
-					value: ws.id,
-					label: `${ws.id} (${ws.path})`,
-				})),
-			});
-			if (p.isCancel(wsChoice)) {
-				p.cancel("Cancelled.");
-				process.exit(0);
-			}
-			workspaceSlug = wsChoice as string;
+
+		// Always show selector — pre-select cwd match if found
+		const { detectCurrentWorkspace } = await import("./context.ts");
+		const currentWs = detectCurrentWorkspace(store);
+
+		// Sort so cwd-matching workspace is first (default selection)
+		const sorted = currentWs
+			? [currentWs, ...workspaces.filter((ws) => ws.id !== currentWs.id)]
+			: workspaces;
+
+		const wsChoice = await p.select({
+			message: "Add channel to:",
+			options: sorted.map((ws) => ({
+				value: ws.id,
+				label:
+					ws.id === currentWs?.id
+						? `${ws.id} (${ws.path}) ← this folder`
+						: `${ws.id} (${ws.path})`,
+			})),
+		});
+		if (p.isCancel(wsChoice)) {
+			p.cancel("Cancelled.");
+			process.exit(0);
 		}
+		workspaceSlug = wsChoice as string;
 	}
 
 	const ws = store.getWorkspace(workspaceSlug);

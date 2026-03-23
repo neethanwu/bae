@@ -39,27 +39,49 @@ function getInstalledSupervisor(): Supervisor | null {
 }
 
 /**
+ * Get the OS-native supervisor for this platform, even if not installed yet.
+ * Returns null only if the platform doesn't support a native supervisor.
+ */
+function getAvailableSupervisor(): Supervisor | null {
+	if (process.platform === "darwin") return new LaunchdSupervisor();
+	if (process.platform === "linux" && existsSync("/run/systemd/system"))
+		return new SystemdSupervisor();
+	return null;
+}
+
+/**
+ * Check if Bae is currently running (via supervisor or PID file).
+ */
+export function isBaeRunning(): boolean {
+	const supervisor = getInstalledSupervisor();
+	if (supervisor?.isRunning()) return true;
+	const info = readPidFile();
+	return !!(info && isProcessAlive(info.pid));
+}
+
+/**
  * If bae is running, restart it so config changes take effect.
  * Uses supervisor if installed, otherwise falls back to legacy spawn.
+ * On restart, migrates to OS-native supervisor if available.
  * Returns true if a restart was performed.
  */
 export function restartIfRunning(): boolean {
-	const supervisor = getInstalledSupervisor();
+	const installed = getInstalledSupervisor();
 
-	if (supervisor) {
-		if (!supervisor.isRunning()) return false;
-		console.log("Restarting bae to apply changes...");
-		supervisor.restart();
-		console.log("Bae restarted — up and running with changes applied.");
+	if (installed?.isRunning()) {
+		console.log("Restarting Bae to apply changes...");
+		installed.restart();
+		console.log("Bae restarted — changes applied.");
 		return true;
 	}
 
-	// Legacy fallback: PID-based restart
+	// Check for legacy PID-based process
 	const info = readPidFile();
 	if (!info || !isProcessAlive(info.pid)) return false;
 
-	console.log("Restarting bae to apply changes...");
+	console.log("Restarting Bae to apply changes...");
 
+	// Kill the legacy process
 	process.kill(info.pid, "SIGTERM");
 	let waited = 0;
 	while (waited < 5000) {
@@ -78,35 +100,52 @@ export function restartIfRunning(): boolean {
 		unlinkSync(PID_FILE);
 	} catch {}
 
+	// Migrate to OS-native supervisor if available
+	const supervisor = getAvailableSupervisor();
+	if (supervisor) {
+		supervisor.start();
+		console.log(
+			`Bae restarted (managed by ${supervisor.type}) — changes applied.`,
+		);
+		return true;
+	}
+
+	// Legacy fallback
 	const fallback = new SpawnSupervisor();
 	fallback.start();
 	console.log(
-		`Bae restarted (PID ${fallback.getLastSpawnedPid()}) — up and running with changes applied.`,
+		`Bae restarted (PID ${fallback.getLastSpawnedPid()}) — changes applied.`,
 	);
 	return true;
 }
 
 /**
  * Start bae as a daemon if it's not already running.
- * Uses supervisor if installed, otherwise falls back to legacy spawn.
+ * Always uses the OS-native supervisor (launchd/systemd) when available
+ * for crash recovery and sleep survival. Falls back to legacy spawn only
+ * on platforms without a native supervisor.
  * Returns true if started.
  */
 export function startIfNotRunning(): boolean {
-	const supervisor = getInstalledSupervisor();
+	// Check if already running via installed supervisor
+	const installed = getInstalledSupervisor();
+	if (installed?.isRunning()) return false;
 
+	// Check if already running via PID
+	const info = readPidFile();
+	if (info && isProcessAlive(info.pid)) return false;
+
+	// Prefer OS-native supervisor (auto-installs if not yet installed)
+	const supervisor = getAvailableSupervisor();
 	if (supervisor) {
-		if (supervisor.isRunning()) return false;
-		supervisor.start();
+		supervisor.start(); // LaunchdSupervisor.start() calls install() if needed
 		console.log(
 			`Bae started (managed by ${supervisor.type}). Logs: ~/.bae/bae.log`,
 		);
 		return true;
 	}
 
-	// Legacy fallback
-	const info = readPidFile();
-	if (info && isProcessAlive(info.pid)) return false;
-
+	// Legacy fallback (no native supervisor available)
 	const fallback = new SpawnSupervisor();
 	fallback.start();
 	console.log(
