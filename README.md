@@ -23,6 +23,7 @@ Your Phone                     Your Machine
 │  Telegram   │               │                                 │
 │  Slack      │◀── Bae ──────▶│  Claude Code / Codex / OpenCode │
 │  iMessage   │               │                                 │
+│  WeChat     │               │                                 │
 └─────────────┘               │  Your files, skills, MCP tools  │
                               └─────────────────────────────────┘
 ```
@@ -32,7 +33,7 @@ Your Phone                     Your Machine
 - **No API keys needed** — uses your existing agent subscription (Claude Max, etc.)
 - **Full agent power** — file editing, bash, code generation, web search — everything your agent can do locally
 - **No tunnel or server** — all connections are outbound (long polling, Socket Mode, database polling)
-- **Multi-platform** — Telegram, Slack, and iMessage today. Discord and email coming soon.
+- **Multi-platform** — Telegram, Slack, iMessage, and WeChat today. Discord and email coming soon.
 - **Conversation continuity** — messages in the same thread share agent context
 - **Agent-agnostic** — swap between agents without losing project context
 
@@ -122,6 +123,15 @@ Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 
 > We're working on a hosted version that will give Bae its own iMessage identity — no self-chat, no double bubbles, works from any device. Stay tuned.
 
+### WeChat
+
+1. Run `bae init` (or `bae channel add --platform wechat`)
+2. A QR code appears in your terminal — scan it with WeChat on your phone
+3. Confirm the connection in WeChat
+4. Done — message the bot from your WeChat to talk to your agent
+
+**How it works:** WeChat uses Tencent's iLink Bot API — all connections are outbound (HTTP long-polling), no tunnel needed. Messages are plain text only. Your WeChat user ID will be shown during setup for the allowed users list.
+
 ## Usage
 
 ```bash
@@ -189,18 +199,22 @@ bae workspace set-executor research codex    # coming soon
 | Telegram | Long polling | Edit-in-place | HTML |
 | Slack | Socket Mode (WebSocket) | Native streaming API | Markdown |
 | iMessage | Database polling (2s) | No streaming | Plain text |
+| WeChat | Long polling (iLink API) | No streaming | Plain text |
 
 All connections are **outbound** — Bae never needs a public URL, tunnel, or webhook endpoint. Works behind any firewall or NAT.
 
-## Updates
+## Always On
 
-Bae auto-updates on every `bae start` and checks for new versions every 6 hours while running. Updates install and restart automatically — no manual intervention needed. Opt out with `BAE_NO_AUTO_UPDATE=1`.
+Bae is designed to stay running without babysitting:
 
-On macOS and Linux (with systemd), `bae start -d` uses the OS-native process supervisor (launchd / systemd) to automatically restart the daemon after crashes or system sleep. On other platforms, Bae falls back to a standard background process.
+- **Auto-updates** — checks for new versions on startup and every 6 hours while running. Updates install and restart seamlessly. Opt out with `BAE_NO_AUTO_UPDATE=1`.
+- **Survives crashes** — `bae start -d` automatically restarts if something goes wrong.
+- **Survives sleep** — on macOS, Bae picks back up when your Mac wakes from sleep.
+- **Manual update** — run `bae upgrade` to update immediately.
 
 ## Status
 
-Phase 3 — Telegram + Slack + iMessage, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI, auto-updates.
+Phase 3 — Telegram, Slack, iMessage, WeChat, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI, auto-updates.
 
 ## Changelog
 
