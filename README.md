@@ -1,6 +1,7 @@
 # Bae — Your Agent, In Your Pocket
 
 [![npm version](https://img.shields.io/npm/v/bae-bridge)](https://www.npmjs.com/package/bae-bridge)
+[![npm downloads](https://img.shields.io/npm/dm/bae-bridge)](https://www.npmjs.com/package/bae-bridge)
 
 > Access your agents from anywhere — continuously.
 
@@ -98,7 +99,7 @@ The wizard walks you through everything — pick your platform, enter credential
 ### Slack
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**
-2. Paste the contents of [`slack-manifest.json`](slack-manifest.json) from this repo
+2. Run `bae init` or `bae channel add --platform slack` — the manifest is copied to your clipboard automatically
 3. Under **Basic Information** → **App-Level Tokens**, generate one with `connections:write` scope
 4. Under **Install App**, install to your workspace
 5. Run `bae init`, select Slack, paste both tokens
