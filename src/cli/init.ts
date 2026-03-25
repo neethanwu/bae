@@ -430,16 +430,23 @@ async function fullSetupFlow(
 		);
 	}
 
-	// 2. Workspace directory
-	const defaultCwd = options?.defaultPath ?? process.cwd();
-	const workspace = await p.text({
-		message: "Workspace directory (where the agent works):",
-		defaultValue: defaultCwd,
-		placeholder: defaultCwd,
-	});
-	if (p.isCancel(workspace)) {
-		p.cancel("Setup cancelled.");
-		process.exit(0);
+	// 2. Workspace directory — skip prompt if path already known from selection
+	let workspace: string;
+	if (options?.defaultPath) {
+		workspace = options.defaultPath;
+		p.log.step(`Workspace directory: ${workspace}`);
+	} else {
+		const defaultCwd = process.cwd();
+		const input = await p.text({
+			message: "Workspace directory (where the agent works):",
+			defaultValue: defaultCwd,
+			placeholder: defaultCwd,
+		});
+		if (p.isCancel(input)) {
+			p.cancel("Setup cancelled.");
+			process.exit(0);
+		}
+		workspace = input;
 	}
 
 	// 3. Workspace slug
