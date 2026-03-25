@@ -25,6 +25,7 @@ Your Phone                     Your Machine
 │  Slack      │◀── Bae ──────▶│  Claude Code / Codex / OpenCode │
 │  iMessage   │               │                                 │
 │  WeChat     │               │                                 │
+│  Email      │               │                                 │
 └─────────────┘               │  Your files, skills, MCP tools  │
                               └─────────────────────────────────┘
 ```
@@ -34,7 +35,7 @@ Your Phone                     Your Machine
 - **No API keys needed** — uses your existing agent subscription (Claude Max, etc.)
 - **Full agent power** — file editing, bash, code generation, web search — everything your agent can do locally
 - **No tunnel or server** — all connections are outbound (long polling, Socket Mode, database polling)
-- **Multi-platform** — Telegram, Slack, iMessage, and WeChat today. Discord and email coming soon.
+- **Multi-platform** — Telegram, Slack, iMessage, WeChat, and Email today. Discord coming soon.
 - **Conversation continuity** — messages in the same thread share agent context
 - **Agent-agnostic** — swap between agents without losing project context
 
@@ -133,6 +134,15 @@ Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 
 **How it works:** WeChat uses Tencent's iLink Bot API — all connections are outbound (HTTP long-polling), no tunnel needed. Messages are plain text only. Your WeChat user ID will be shown during setup for the allowed users list.
 
+### Email (AgentMail)
+
+1. Run `bae init` (or `bae channel add --platform email`)
+2. Sign up for a free [AgentMail](https://agentmail.to) account (3 inboxes, 3,000 emails/month)
+3. Paste your API key — Bae creates an inbox for your agent
+4. Done — send an email to your agent's address to start a conversation
+
+**How it works:** Email uses [AgentMail](https://agentmail.to) for inbox management — WebSocket for real-time inbound email, no tunnel needed. Each email thread maps to an agent session. Replies are sent in-thread automatically. You own your AgentMail account; Bae just manages the connection.
+
 ## Usage
 
 ```bash
@@ -201,6 +211,7 @@ bae workspace set-executor research codex    # coming soon
 | Slack | Socket Mode (WebSocket) | Native streaming API | Markdown |
 | iMessage | Database polling (2s) | No streaming | Plain text |
 | WeChat | Long polling (iLink API) | No streaming | Plain text |
+| Email | WebSocket (AgentMail) | No streaming | Plain text |
 
 All connections are **outbound** — Bae never needs a public URL, tunnel, or webhook endpoint. Works behind any firewall or NAT.
 
@@ -215,7 +226,7 @@ Bae is designed to stay running without babysitting:
 
 ## Status
 
-Phase 3 — Telegram, Slack, iMessage, WeChat, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI, auto-updates.
+Phase 3 — Telegram, Slack, iMessage, WeChat, Email, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI, auto-updates.
 
 ## Changelog
 
