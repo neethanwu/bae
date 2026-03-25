@@ -50,9 +50,10 @@ export async function createBridge(
 			console.error(`[bae] Unknown channel: ${channelId}`);
 			return;
 		}
+		const tag = `[bae:${channel.workspaceId}/${channel.platform}]`;
 
 		if (!channel.allowedUsers.includes(userId)) {
-			console.log(`[bae] Rejected message from unauthorized user: ${userId}`);
+			console.log(`${tag} Rejected message from unauthorized user: ${userId}`);
 			return;
 		}
 
@@ -78,7 +79,7 @@ export async function createBridge(
 
 		const startTime = Date.now();
 		console.log(
-			`[bae] <- ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
+			`${tag} <- ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
 		);
 
 		try {
@@ -90,7 +91,7 @@ export async function createBridge(
 
 			// Steering fast path: message sent to active agent's stdin
 			if (result.steered) {
-				console.log(`[bae] Steered in ${Date.now() - startTime}ms`);
+				console.log(`${tag} Steered in ${Date.now() - startTime}ms`);
 				// Typing indicator — the long-lived consumer will handle the response
 				thread.startTyping().catch(() => {});
 				return;
@@ -103,13 +104,13 @@ export async function createBridge(
 			// Must NOT await: some SDKs hold a thread lock while our handler
 			// runs. If we block here, subsequent messages (steering) get LOCK_FAILED.
 			// The consumer runs for the entire process lifetime and handles all turns.
-			console.log(`[bae] Spawned in ${Date.now() - startTime}ms`);
-			consumeAllTurns(thread, result.events, config).catch(async (err) => {
-				console.error("[bae] consumeAllTurns error:", err);
+			console.log(`${tag} Spawned in ${Date.now() - startTime}ms`);
+			consumeAllTurns(thread, result.events, config, tag).catch(async (err) => {
+				console.error(`${tag} consumeAllTurns error:`, err);
 				await thread.post(pick(ERROR_STREAM_MESSAGES)).catch(() => {});
 			});
 		} catch (err) {
-			console.error("[bae] Error:", err);
+			console.error(`${tag} Error:`, err);
 			await thread.post(pick(ERROR_SPAWN_MESSAGES));
 		}
 	}
@@ -134,6 +135,7 @@ async function consumeAllTurns(
 	thread: PlatformThread,
 	events: AsyncIterable<AgentEvent>,
 	config: PlatformConfig,
+	tag: string,
 ): Promise<void> {
 	const { splitSoft, splitHard } = config;
 	let turnStartTime = Date.now();
@@ -260,7 +262,7 @@ async function consumeAllTurns(
 			? `, $${resultEvent.costUsd.toFixed(4)}`
 			: "";
 		console.log(
-			`[bae] -> ${logPreview}${logPreview.length >= LOG_PREVIEW_LEN ? "..." : ""} (${(elapsed / 1000).toFixed(1)}s${costStr}${toolCount > 0 ? `, ${toolCount} tools` : ""}${messageCount > 1 ? `, ${messageCount} messages` : ""})`,
+			`${tag} -> ${logPreview}${logPreview.length >= LOG_PREVIEW_LEN ? "..." : ""} (${(elapsed / 1000).toFixed(1)}s${costStr}${toolCount > 0 ? `, ${toolCount} tools` : ""}${messageCount > 1 ? `, ${messageCount} messages` : ""})`,
 		);
 	}
 
@@ -270,7 +272,7 @@ async function consumeAllTurns(
 	try {
 		for await (const event of events) {
 			if (event.kind === "init") {
-				console.log(`[bae] Session: ${event.sessionId}`);
+				console.log(`${tag} Session: ${event.sessionId}`);
 			}
 
 			if (event.kind === "text_delta") {
@@ -308,7 +310,7 @@ async function consumeAllTurns(
 						pushChunk(event.text.slice(0, breakIdx));
 						const wasInFence = splitStream();
 						console.log(
-							`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+							`${tag} Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
 						);
 						await postPromise;
 						startNewStreamWithFence(wasInFence);
@@ -317,7 +319,7 @@ async function consumeAllTurns(
 						pushChunk(event.text.slice(0, remaining));
 						const wasInFence = splitStream();
 						console.log(
-							`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+							`${tag} Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
 						);
 						await postPromise;
 						startNewStreamWithFence(wasInFence);
@@ -325,7 +327,7 @@ async function consumeAllTurns(
 					} else {
 						const wasInFence = splitStream();
 						console.log(
-							`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+							`${tag} Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
 						);
 						await postPromise;
 						startNewStreamWithFence(wasInFence);
@@ -340,7 +342,7 @@ async function consumeAllTurns(
 					pushChunk(event.text.slice(0, breakIdx));
 					const wasInFence = splitStream();
 					console.log(
-						`[bae] Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
+						`${tag} Split at ${currentStreamLength} chars (fence: ${wasInFence})`,
 					);
 					await postPromise;
 					startNewStreamWithFence(wasInFence);
@@ -353,7 +355,7 @@ async function consumeAllTurns(
 			if (event.kind === "tool_use") {
 				toolCount++;
 				const status = formatToolStatus(event.toolName, event.input);
-				console.log(`[bae] Tool: ${status}`);
+				console.log(`${tag} Tool: ${status}`);
 
 				// End any active stream before tool execution
 				if (isStreaming) {
@@ -374,7 +376,7 @@ async function consumeAllTurns(
 					resultLower.includes("/login")
 				) {
 					console.error(
-						"[bae] Agent auth error detected. Run `claude auth login` on the host machine.",
+						`${tag} Agent auth error detected. Run \`claude auth login\` on the host machine.`,
 					);
 					stopTyping();
 					if (isStreaming) {
@@ -404,7 +406,7 @@ async function consumeAllTurns(
 			}
 
 			if (event.kind === "error") {
-				console.error(`[bae] Agent error: ${event.message}`);
+				console.error(`${tag} Agent error: ${event.message}`);
 				stopTyping();
 				if (isStreaming) {
 					endStream();
