@@ -36,17 +36,16 @@ export async function listInboxes(
 }
 
 /**
- * Build the display name string for an inbox.
- * AgentMail format: "Display Name <username@domain.com>"
+ * Build the display name for an inbox.
+ * AgentMail display_name is a plain string (no angle brackets or email).
  */
-function buildDisplayName(workspaceSlug: string, email: string): string {
-	const label = `Bae from ${workspaceSlug}`;
-	return `${label} <${email}>`;
+function buildDisplayName(workspaceSlug: string): string {
+	return `Bae from ${workspaceSlug}`;
 }
 
 /**
  * Create a new inbox, optionally with a specific username prefix.
- * Sets display name to "Bae from <workspace> <addr>" for friendly sender identity.
+ * Sets display name to "Bae from <workspace>" for friendly sender identity.
  * Returns the inbox ID and full email address.
  */
 export async function createInbox(
@@ -54,19 +53,13 @@ export async function createInbox(
 	username?: string,
 	workspaceSlug?: string,
 ): Promise<InboxInfo> {
-	// Create first to get the email address, then update display name
+	const displayName = workspaceSlug
+		? buildDisplayName(workspaceSlug)
+		: undefined;
 	const inbox = await client.inboxes.create({
 		...(username ? { username } : {}),
+		...(displayName ? { displayName } : {}),
 	});
-	// Now set display name with the actual email address
-	if (workspaceSlug) {
-		try {
-			const displayName = buildDisplayName(workspaceSlug, inbox.email);
-			await client.inboxes.update(inbox.inboxId, { displayName });
-		} catch {
-			// Best effort — inbox is created regardless
-		}
-	}
 	return { inboxId: inbox.inboxId, email: inbox.email };
 }
 
@@ -81,7 +74,7 @@ export async function ensureDisplayName(
 ): Promise<void> {
 	try {
 		const inbox = await client.inboxes.get(inboxId);
-		const expected = buildDisplayName(workspaceSlug, inbox.email);
+		const expected = buildDisplayName(workspaceSlug);
 		if (inbox.displayName !== expected) {
 			await client.inboxes.update(inboxId, { displayName: expected });
 			console.log(`[bae:email] Updated inbox display name to "${expected}"`);
