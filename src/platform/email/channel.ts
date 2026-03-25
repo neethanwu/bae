@@ -104,7 +104,7 @@ export function createEmailChannel(
 ): ChannelHandle {
 	const { apiKey, inboxId, workspaceSlug, onMessage } = options;
 	const client = createClient(apiKey);
-	const tag = workspaceSlug ? `[bae:email:${workspaceSlug}]` : "[bae:email]";
+	const tag = workspaceSlug ? `[bae:${workspaceSlug}/email]` : "[bae:email]";
 
 	type Socket = Awaited<ReturnType<typeof client.websockets.connect>>;
 	let socket: Socket | null = null;
