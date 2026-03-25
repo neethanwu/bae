@@ -90,6 +90,7 @@ function emailThread(
 export interface CreateEmailChannelOptions {
 	apiKey: string;
 	inboxId: string;
+	workspaceSlug?: string;
 	channelId: string;
 	onMessage: (
 		thread: PlatformThread,
@@ -101,7 +102,7 @@ export interface CreateEmailChannelOptions {
 export function createEmailChannel(
 	options: CreateEmailChannelOptions,
 ): ChannelHandle {
-	const { apiKey, inboxId, onMessage } = options;
+	const { apiKey, inboxId, workspaceSlug, onMessage } = options;
 	const client = createClient(apiKey);
 
 	type Socket = Awaited<ReturnType<typeof client.websockets.connect>>;
@@ -233,6 +234,11 @@ export function createEmailChannel(
 	return {
 		start: async () => {
 			console.log("[bae:email] Starting email channel...");
+			// Ensure display name is set (for inboxes created before this feature)
+			if (workspaceSlug) {
+				const { ensureDisplayName } = await import("./api.ts");
+				await ensureDisplayName(client, inboxId, workspaceSlug);
+			}
 			// Catch up on any unreplied messages from downtime
 			await catchUp();
 			// Start WebSocket monitor

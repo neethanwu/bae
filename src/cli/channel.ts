@@ -604,6 +604,7 @@ async function promptCredentials(
 			return {
 				AGENTMAIL_API_KEY: apiKey,
 				AGENTMAIL_INBOX_ID: result.inboxId,
+				AGENTMAIL_WORKSPACE_SLUG: opts?.workspaceSlug ?? "",
 			};
 		}
 	}

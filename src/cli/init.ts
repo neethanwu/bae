@@ -312,6 +312,7 @@ async function collectCredentials(
 		credentials = {
 			AGENTMAIL_API_KEY: apiKey,
 			AGENTMAIL_INBOX_ID: result.inboxId,
+			AGENTMAIL_WORKSPACE_SLUG: slug,
 		};
 		displayName = result.email;
 	}
@@ -645,9 +646,19 @@ export async function runInit(argv: string[] = []): Promise<void> {
 					console.error("Invalid AgentMail API key.");
 					process.exit(1);
 				}
+				const wsSlug = flags.workspace
+					? slugFromPath(
+							resolve(
+								flags.workspace.startsWith("~/")
+									? resolve(homedir(), flags.workspace.slice(2))
+									: flags.workspace,
+							),
+						)
+					: "agent";
 				credentials = {
 					AGENTMAIL_API_KEY: apiKey,
 					AGENTMAIL_INBOX_ID: inboxIdFlag,
+					AGENTMAIL_WORKSPACE_SLUG: wsSlug,
 				};
 				displayName = "Email";
 			} else {

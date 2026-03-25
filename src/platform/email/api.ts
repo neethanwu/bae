@@ -37,14 +37,38 @@ export async function listInboxes(
 
 /**
  * Create a new inbox, optionally with a specific username prefix.
+ * Sets display name to "Bae from <workspace>" for friendly sender identity.
  * Returns the inbox ID and full email address.
  */
 export async function createInbox(
 	client: AgentMailClient,
 	username?: string,
+	workspaceSlug?: string,
 ): Promise<InboxInfo> {
-	const inbox = await client.inboxes.create(
-		username ? { username } : undefined,
-	);
+	const displayName = workspaceSlug ? `Bae from ${workspaceSlug}` : "Bae";
+	const inbox = await client.inboxes.create({
+		...(username ? { username } : {}),
+		displayName,
+	});
 	return { inboxId: inbox.inboxId, email: inbox.email };
+}
+
+/**
+ * Ensure an existing inbox has the correct display name.
+ * Call on channel start to fix inboxes created before this feature.
+ */
+export async function ensureDisplayName(
+	client: AgentMailClient,
+	inboxId: string,
+	workspaceSlug: string,
+): Promise<void> {
+	try {
+		const inbox = await client.inboxes.get(inboxId);
+		const expected = `Bae from ${workspaceSlug}`;
+		if (inbox.displayName !== expected) {
+			await client.inboxes.update(inboxId, { displayName: expected });
+		}
+	} catch {
+		// Best effort — don't block startup
+	}
 }

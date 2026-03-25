@@ -211,7 +211,7 @@ async function createInboxFlow(
 		}
 
 		try {
-			const inbox = await createInbox(client, name);
+			const inbox = await createInbox(client, name, workspaceSlug);
 			p.log.success(`Your agent's email: ${inbox.email}`);
 			p.log.info("Send an email to this address to talk to your agent.");
 			return { inboxId: inbox.inboxId, email: inbox.email };

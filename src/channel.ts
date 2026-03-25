@@ -58,6 +58,7 @@ export function createChannel(options: CreateChannelOptions): ChannelHandle {
 			return createEmailChannel({
 				apiKey: credentials.AGENTMAIL_API_KEY ?? "",
 				inboxId: credentials.AGENTMAIL_INBOX_ID ?? "",
+				workspaceSlug: credentials.AGENTMAIL_WORKSPACE_SLUG ?? "",
 				channelId: options.channelId,
 				onMessage,
 			});
