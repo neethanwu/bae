@@ -104,6 +104,7 @@ export function createEmailChannel(
 ): ChannelHandle {
 	const { apiKey, inboxId, workspaceSlug, onMessage } = options;
 	const client = createClient(apiKey);
+	const tag = workspaceSlug ? `[bae:email:${workspaceSlug}]` : "[bae:email]";
 
 	type Socket = Awaited<ReturnType<typeof client.websockets.connect>>;
 	let socket: Socket | null = null;
@@ -145,7 +146,7 @@ export function createEmailChannel(
 			const messages = resp.messages ?? [];
 			if (messages.length > 0) {
 				console.log(
-					`[bae:email] Catching up on ${messages.length} unreplied message(s)`,
+					`${tag} Catching up on ${messages.length} unreplied message(s)`,
 				);
 				for (const item of messages) {
 					try {
@@ -164,15 +165,12 @@ export function createEmailChannel(
 							messageId: full.messageId,
 						});
 					} catch (err) {
-						console.error(
-							"[bae:email] Error processing catch-up message:",
-							err,
-						);
+						console.error(`${tag} Error processing catch-up message:`, err);
 					}
 				}
 			}
 		} catch (err) {
-			console.warn("[bae:email] Catch-up query failed:", err);
+			console.warn(`${tag} Catch-up query failed:`, err);
 		}
 	}
 
@@ -185,13 +183,13 @@ export function createEmailChannel(
 		try {
 			socket = await client.websockets.connect();
 		} catch (err) {
-			console.error("[bae:email] WebSocket connect failed:", err);
+			console.error(`${tag} WebSocket connect failed:`, err);
 			return;
 		}
 
 		// SDK's connect() resolves after the socket is already open,
 		// so subscribe immediately — don't rely on the "open" event.
-		console.log("[bae:email] WebSocket connected, subscribing...");
+		console.log(`${tag} WebSocket connected, subscribing...`);
 		socket.sendSubscribe({
 			type: "subscribe",
 			inboxIds: [inboxId],
@@ -212,28 +210,28 @@ export function createEmailChannel(
 					});
 				}
 			} catch (err) {
-				console.error("[bae:email] Error handling WebSocket event:", err);
+				console.error(`${tag} Error handling WebSocket event:`, err);
 			}
 		});
 
 		socket.on("close", (event) => {
 			if (!aborted) {
 				console.warn(
-					`[bae:email] WebSocket closed (code=${event.code}, reason=${event.reason || "none"}). SDK will attempt reconnection.`,
+					`${tag} WebSocket closed (code=${event.code}, reason=${event.reason || "none"}). SDK will attempt reconnection.`,
 				);
 			}
 		});
 
 		socket.on("error", (err) => {
 			if (!aborted) {
-				console.error("[bae:email] WebSocket error:", err);
+				console.error(`${tag} WebSocket error:`, err);
 			}
 		});
 	}
 
 	return {
 		start: async () => {
-			console.log("[bae:email] Starting email channel...");
+			console.log(`${tag} Starting email channel...`);
 			// Ensure display name is set (for inboxes created before this feature)
 			if (workspaceSlug) {
 				const { ensureDisplayName } = await import("./api.ts");
