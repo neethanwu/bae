@@ -36,8 +36,17 @@ export async function listInboxes(
 }
 
 /**
+ * Build the display name string for an inbox.
+ * AgentMail format: "Display Name <username@domain.com>"
+ */
+function buildDisplayName(workspaceSlug: string, email: string): string {
+	const label = `Bae from ${workspaceSlug}`;
+	return `${label} <${email}>`;
+}
+
+/**
  * Create a new inbox, optionally with a specific username prefix.
- * Sets display name to "Bae from <workspace>" for friendly sender identity.
+ * Sets display name to "Bae from <workspace> <addr>" for friendly sender identity.
  * Returns the inbox ID and full email address.
  */
 export async function createInbox(
@@ -45,11 +54,19 @@ export async function createInbox(
 	username?: string,
 	workspaceSlug?: string,
 ): Promise<InboxInfo> {
-	const displayName = workspaceSlug ? `Bae from ${workspaceSlug}` : "Bae";
+	// Create first to get the email address, then update display name
 	const inbox = await client.inboxes.create({
 		...(username ? { username } : {}),
-		displayName,
 	});
+	// Now set display name with the actual email address
+	if (workspaceSlug) {
+		try {
+			const displayName = buildDisplayName(workspaceSlug, inbox.email);
+			await client.inboxes.update(inbox.inboxId, { displayName });
+		} catch {
+			// Best effort — inbox is created regardless
+		}
+	}
 	return { inboxId: inbox.inboxId, email: inbox.email };
 }
 
@@ -64,7 +81,7 @@ export async function ensureDisplayName(
 ): Promise<void> {
 	try {
 		const inbox = await client.inboxes.get(inboxId);
-		const expected = `Bae from ${workspaceSlug}`;
+		const expected = buildDisplayName(workspaceSlug, inbox.email);
 		if (inbox.displayName !== expected) {
 			await client.inboxes.update(inboxId, { displayName: expected });
 			console.log(`[bae:email] Updated inbox display name to "${expected}"`);
