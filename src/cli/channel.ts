@@ -255,7 +255,10 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	}
 
 	// Prompt for platform-specific credentials
-	const creds = await promptCredentials(platform);
+	const creds = await promptCredentials(platform, {
+		store,
+		workspaceSlug,
+	});
 
 	// Validate credentials against platform API
 	await validateCredentials(platform, creds);
@@ -268,6 +271,7 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 		telegram: "To find your Telegram user ID, message @userinfobot",
 		slack: "To find your Slack user ID: profile → ⋯ menu → Copy member ID",
 		imessage: "Use your phone number (+1234567890) or Apple ID email address",
+		email: "Your email address (who can message this agent)",
 	};
 	p.log.info(userIdHints[platform] ?? "Enter allowed user IDs");
 
@@ -276,6 +280,7 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 		slack: "Slack user IDs must start with U or W (e.g. U0123ABCDE)",
 		imessage:
 			"iMessage user IDs must be phone numbers (+1234567890) or email addresses",
+		email: "Must be a valid email address",
 	};
 
 	const userIds = await p.text({
@@ -370,7 +375,9 @@ async function checkDuplicateCredentials(
 			? "TELEGRAM_BOT_TOKEN"
 			: platform === "slack"
 				? "SLACK_BOT_TOKEN"
-				: null;
+				: platform === "email"
+					? "AGENTMAIL_INBOX_ID"
+					: null;
 	if (!tokenKey) return;
 
 	const newToken = creds[tokenKey];
@@ -381,10 +388,19 @@ async function checkDuplicateCredentials(
 		if (ch.platform !== platform) continue;
 		const existingCreds = readChannelCredentials(ch.id);
 		if (existingCreds[tokenKey] === newToken) {
-			console.error(
-				`This token is already used by channel "${ch.label ?? ch.id}" (workspace: ${ch.workspaceId}).`,
-			);
-			console.error(`Each ${platform} app can only be bound to one workspace.`);
+			if (platform === "email") {
+				console.error(
+					`This inbox is already used by channel "${ch.label ?? ch.id}" (workspace: ${ch.workspaceId}).`,
+				);
+				console.error("Each inbox can only be bound to one workspace.");
+			} else {
+				console.error(
+					`This token is already used by channel "${ch.label ?? ch.id}" (workspace: ${ch.workspaceId}).`,
+				);
+				console.error(
+					`Each ${platform} app can only be bound to one workspace.`,
+				);
+			}
 			process.exit(1);
 		}
 	}
@@ -392,6 +408,7 @@ async function checkDuplicateCredentials(
 
 async function promptCredentials(
 	platform: Platform,
+	opts?: { store?: Store; workspaceSlug?: string },
 ): Promise<Record<string, string>> {
 	switch (platform) {
 		case "telegram": {
@@ -571,31 +588,22 @@ async function promptCredentials(
 			};
 		}
 		case "email": {
-			p.log.info(
-				"Email uses AgentMail for inbox management.\n" +
-					"  1. Get an API key at https://agentmail.to\n" +
-					"  2. Create an inbox (or provide an existing inbox ID)",
+			const { resolveApiKey, resolveInbox } = await import(
+				"./email-onboarding.ts"
 			);
-			const apiKey = await p.text({
-				message: "AgentMail API key:",
-				validate: (val) => {
-					if (!val?.trim()) return "API key is required";
-				},
-			});
-			if (p.isCancel(apiKey)) {
-				p.cancel("Cancelled.");
-				process.exit(0);
+			const store = opts?.store;
+			if (!store) {
+				console.error("Internal error: store is required for email setup.");
+				process.exit(1);
 			}
-			const inboxId = await p.text({
-				message: "Inbox ID (leave blank to auto-create):",
-			});
-			if (p.isCancel(inboxId)) {
-				p.cancel("Cancelled.");
-				process.exit(0);
-			}
+			const apiKey = await resolveApiKey(store);
+			const { createClient } = await import("../platform/email/api.ts");
+			const client = createClient(apiKey);
+			const workspaceSlug = opts?.workspaceSlug ?? "agent";
+			const result = await resolveInbox(client, store, apiKey, workspaceSlug);
 			return {
 				AGENTMAIL_API_KEY: apiKey,
-				...(inboxId ? { AGENTMAIL_INBOX_ID: inboxId } : {}),
+				AGENTMAIL_INBOX_ID: result.inboxId,
 			};
 		}
 	}
@@ -696,9 +704,16 @@ async function validateCredentials(
 		}
 		case "email": {
 			const apiKey = creds.AGENTMAIL_API_KEY;
+			const inboxId = creds.AGENTMAIL_INBOX_ID;
 			if (!apiKey) throw new Error("Missing AGENTMAIL_API_KEY");
-			// Basic validation — full validation happens at channel start
-			p.log.success("AgentMail credentials saved");
+			if (!inboxId) throw new Error("Missing AGENTMAIL_INBOX_ID");
+			const { validateApiKey } = await import("../platform/email/api.ts");
+			const result = await validateApiKey(apiKey);
+			if (!result.valid) {
+				console.error("Invalid AgentMail API key.");
+				process.exit(1);
+			}
+			p.log.success("AgentMail credentials verified");
 			break;
 		}
 	}

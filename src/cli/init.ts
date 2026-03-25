@@ -74,7 +74,10 @@ async function setupWorkspaceAndChannel(opts: {
 
 // ── Interactive credential + user ID collection ─────────────────────────
 
-async function collectCredentials(platform: Platform): Promise<{
+async function collectCredentials(
+	platform: Platform,
+	opts?: { store?: Store; workspaceSlug?: string },
+): Promise<{
 	credentials: Record<string, string>;
 	displayName: string;
 }> {
@@ -293,33 +296,24 @@ async function collectCredentials(platform: Platform): Promise<{
 		credentials = { BAE_LOCAL_MODE: "true" };
 		displayName = "iMessage";
 	} else if (platform === "email") {
-		p.log.info(
-			"Email uses AgentMail for inbox management.\n" +
-				"  1. Get an API key at https://agentmail.to\n" +
-				"  2. Create an inbox (or provide an existing inbox ID)",
+		const { resolveApiKey, resolveInbox } = await import(
+			"./email-onboarding.ts"
 		);
-		const apiKey = await p.text({
-			message: "AgentMail API key:",
-			validate: (val) => {
-				if (!val?.trim()) return "API key is required";
-			},
-		});
-		if (p.isCancel(apiKey)) {
-			p.cancel("Setup cancelled.");
-			process.exit(0);
+		const store = opts?.store;
+		if (!store) {
+			p.log.error("Internal error: store is required for email setup.");
+			process.exit(1);
 		}
-		const inboxId = await p.text({
-			message: "Inbox ID (leave blank to auto-create):",
-		});
-		if (p.isCancel(inboxId)) {
-			p.cancel("Setup cancelled.");
-			process.exit(0);
-		}
+		const apiKey = await resolveApiKey(store);
+		const { createClient } = await import("../platform/email/api.ts");
+		const client = createClient(apiKey);
+		const slug = opts?.workspaceSlug ?? "agent";
+		const result = await resolveInbox(client, store, apiKey, slug);
 		credentials = {
 			AGENTMAIL_API_KEY: apiKey,
-			...(inboxId ? { AGENTMAIL_INBOX_ID: inboxId } : {}),
+			AGENTMAIL_INBOX_ID: result.inboxId,
 		};
-		displayName = "Email";
+		displayName = result.email;
 	}
 
 	return { credentials, displayName };
@@ -481,7 +475,10 @@ async function fullSetupFlow(
 	const platform = platformChoice as Platform;
 
 	// 5. Credentials
-	const { credentials, displayName } = await collectCredentials(platform);
+	const { credentials, displayName } = await collectCredentials(platform, {
+		store,
+		workspaceSlug: slug,
+	});
 
 	// 6. User IDs
 	const allowedUsers = await collectUserIds(platform);
@@ -624,6 +621,28 @@ export async function runInit(argv: string[] = []): Promise<void> {
 					SLACK_APP_TOKEN: appToken,
 				};
 				displayName = "Slack";
+			} else if (platform === "email") {
+				const apiKey = flags.token;
+				if (!apiKey) {
+					console.error("AgentMail API key is required (--token)");
+					process.exit(1);
+				}
+				const inboxIdFlag = flags["inbox-id"];
+				if (!inboxIdFlag) {
+					console.error("Inbox ID is required for email (--inbox-id)");
+					process.exit(1);
+				}
+				const { validateApiKey } = await import("../platform/email/api.ts");
+				const result = await validateApiKey(apiKey);
+				if (!result.valid) {
+					console.error("Invalid AgentMail API key.");
+					process.exit(1);
+				}
+				credentials = {
+					AGENTMAIL_API_KEY: apiKey,
+					AGENTMAIL_INBOX_ID: inboxIdFlag,
+				};
+				displayName = "Email";
 			} else {
 				const botToken = flags.token;
 				if (!botToken.includes(":")) {
