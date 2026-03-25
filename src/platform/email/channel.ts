@@ -182,13 +182,13 @@ export function createEmailChannel(
 			return;
 		}
 
-		socket.on("open", () => {
-			console.log("[bae:email] WebSocket connected, subscribing...");
-			socket?.sendSubscribe({
-				type: "subscribe",
-				inboxIds: [inboxId],
-				eventTypes: ["message.received"],
-			});
+		// SDK's connect() resolves after the socket is already open,
+		// so subscribe immediately — don't rely on the "open" event.
+		console.log("[bae:email] WebSocket connected, subscribing...");
+		socket.sendSubscribe({
+			type: "subscribe",
+			inboxIds: [inboxId],
+			eventTypes: ["message.received"],
 		});
 
 		socket.on("message", async (event) => {
