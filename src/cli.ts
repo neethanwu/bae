@@ -7,7 +7,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { loadEnvFile } from "./cli/env.ts";
 import {
 	detectSupervisor,
@@ -342,6 +342,10 @@ async function start() {
 			mkdirSync(ws.path, { recursive: true });
 
 			const config = getPlatformConfig(channel.platform);
+			// Inject workspace slug for platforms that need it (email display name, logging)
+			if (channel.platform === "email" && !creds.AGENTMAIL_WORKSPACE_SLUG) {
+				creds.AGENTMAIL_WORKSPACE_SLUG = basename(ws.path);
+			}
 			const handle = createChannel({
 				platform: channel.platform,
 				credentials: creds,

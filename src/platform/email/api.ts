@@ -67,6 +67,7 @@ export async function ensureDisplayName(
 		const expected = `Bae from ${workspaceSlug}`;
 		if (inbox.displayName !== expected) {
 			await client.inboxes.update(inboxId, { displayName: expected });
+			console.log(`[bae:email] Updated inbox display name to "${expected}"`);
 		}
 	} catch {
 		// Best effort — don't block startup
