@@ -292,6 +292,34 @@ async function collectCredentials(platform: Platform): Promise<{
 
 		credentials = { BAE_LOCAL_MODE: "true" };
 		displayName = "iMessage";
+	} else if (platform === "email") {
+		p.log.info(
+			"Email uses AgentMail for inbox management.\n" +
+				"  1. Get an API key at https://agentmail.to\n" +
+				"  2. Create an inbox (or provide an existing inbox ID)",
+		);
+		const apiKey = await p.text({
+			message: "AgentMail API key:",
+			validate: (val) => {
+				if (!val?.trim()) return "API key is required";
+			},
+		});
+		if (p.isCancel(apiKey)) {
+			p.cancel("Setup cancelled.");
+			process.exit(0);
+		}
+		const inboxId = await p.text({
+			message: "Inbox ID (leave blank to auto-create):",
+		});
+		if (p.isCancel(inboxId)) {
+			p.cancel("Setup cancelled.");
+			process.exit(0);
+		}
+		credentials = {
+			AGENTMAIL_API_KEY: apiKey,
+			...(inboxId ? { AGENTMAIL_INBOX_ID: inboxId } : {}),
+		};
+		displayName = "Email";
 	}
 
 	return { credentials, displayName };
@@ -305,6 +333,7 @@ async function collectUserIds(platform: Platform): Promise<string[]> {
 		imessage: "Use your phone number (+1234567890) or Apple ID email.",
 		wechat:
 			"Your WeChat user ID was shown during QR login (e.g. abc123@im.wechat).",
+		email: "Enter the email address(es) allowed to message this channel.",
 	};
 	p.log.info(hints[platform] ?? "Enter your user ID for this platform.");
 
@@ -313,6 +342,7 @@ async function collectUserIds(platform: Platform): Promise<string[]> {
 		slack: "U0123ABCDE (comma-separated for multiple)",
 		imessage: "+1234567890 or email@example.com",
 		wechat: "abc123@im.wechat",
+		email: "user@example.com (comma-separated for multiple)",
 	};
 
 	const userIds = await p.text({
@@ -337,6 +367,11 @@ async function collectUserIds(platform: Platform): Promise<string[]> {
 				ids.some((id) => !/^[a-f0-9]+@im\.wechat$/i.test(id))
 			)
 				return "WeChat user IDs must end with @im.wechat";
+			if (
+				platform === "email" &&
+				ids.some((id) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id))
+			)
+				return "Email user IDs must be valid email addresses";
 		},
 	});
 
@@ -363,6 +398,7 @@ function selectPlatformOptions(): { value: string; label: string }[] {
 		{ value: "telegram", label: "Telegram" },
 		{ value: "slack", label: "Slack" },
 		{ value: "wechat", label: "WeChat" },
+		{ value: "email", label: "Email (AgentMail)" },
 	];
 	if (process.platform === "darwin") {
 		options.push({ value: "imessage", label: "iMessage (macOS only)" });
@@ -500,7 +536,7 @@ async function manageWorkspace(
 	workspaceId: string,
 ): Promise<boolean> {
 	const channels = store.getChannelsByWorkspace(workspaceId);
-	const allPlatforms = ["telegram", "slack", "wechat"];
+	const allPlatforms = ["telegram", "slack", "wechat", "email"];
 	if (process.platform === "darwin") allPlatforms.push("imessage");
 	const usedPlatforms = new Set<string>(channels.map((ch) => ch.platform));
 	const hasAvailable = allPlatforms.some((pl) => !usedPlatforms.has(pl));

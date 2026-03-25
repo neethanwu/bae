@@ -62,6 +62,7 @@
     "@photon-ai/imessage-kit": "^2.1.2",
     "@slack/socket-mode": "^2.0.6",
     "@slack/web-api": "^7.15.0",
+    "agentmail": "^0.4.12",
     "better-sqlite3": "^12.6.2",
     "chat": "^4.20.2",
     "hono": "^4.12.5",

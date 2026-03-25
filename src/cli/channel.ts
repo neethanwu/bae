@@ -65,7 +65,7 @@ export async function channelCommand(
     remove <channel-id>     Remove a channel
 
   Options (add):
-    --platform <name>    Platform: telegram, slack, imessage, wechat
+    --platform <name>    Platform: telegram, slack, imessage, wechat, email
     --label <text>       Display label for the channel
 
   Options (list):
@@ -197,11 +197,17 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	}
 
 	let platform: Platform;
-	const VALID_PLATFORMS = new Set(["telegram", "slack", "imessage", "wechat"]);
+	const VALID_PLATFORMS = new Set([
+		"telegram",
+		"slack",
+		"imessage",
+		"wechat",
+		"email",
+	]);
 	if (flags.platform) {
 		if (!VALID_PLATFORMS.has(flags.platform)) {
 			console.error(
-				`Unsupported platform: "${flags.platform}"\nAvailable: telegram, slack, imessage, wechat`,
+				`Unsupported platform: "${flags.platform}"\nAvailable: telegram, slack, imessage, wechat, email`,
 			);
 			process.exit(1);
 		}
@@ -218,6 +224,7 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 			{ value: "slack", label: "Slack" },
 		];
 		allPlatforms.push({ value: "wechat", label: "WeChat" });
+		allPlatforms.push({ value: "email", label: "Email (AgentMail)" });
 		if (process.platform === "darwin") {
 			allPlatforms.push({
 				value: "imessage",
@@ -563,6 +570,34 @@ async function promptCredentials(
 				WECHAT_BASE_URL: result.baseUrl,
 			};
 		}
+		case "email": {
+			p.log.info(
+				"Email uses AgentMail for inbox management.\n" +
+					"  1. Get an API key at https://agentmail.to\n" +
+					"  2. Create an inbox (or provide an existing inbox ID)",
+			);
+			const apiKey = await p.text({
+				message: "AgentMail API key:",
+				validate: (val) => {
+					if (!val?.trim()) return "API key is required";
+				},
+			});
+			if (p.isCancel(apiKey)) {
+				p.cancel("Cancelled.");
+				process.exit(0);
+			}
+			const inboxId = await p.text({
+				message: "Inbox ID (leave blank to auto-create):",
+			});
+			if (p.isCancel(inboxId)) {
+				p.cancel("Cancelled.");
+				process.exit(0);
+			}
+			return {
+				AGENTMAIL_API_KEY: apiKey,
+				...(inboxId ? { AGENTMAIL_INBOX_ID: inboxId } : {}),
+			};
+		}
 	}
 }
 
@@ -659,6 +694,13 @@ async function validateCredentials(
 			}
 			break;
 		}
+		case "email": {
+			const apiKey = creds.AGENTMAIL_API_KEY;
+			if (!apiKey) throw new Error("Missing AGENTMAIL_API_KEY");
+			// Basic validation — full validation happens at channel start
+			p.log.success("AgentMail credentials saved");
+			break;
+		}
 	}
 }
 
@@ -674,5 +716,8 @@ function validateUserId(id: string, platform: Platform): boolean {
 		case "wechat":
 			// WeChat user IDs: hex string @im.wechat
 			return /^[a-f0-9]+@im\.wechat$/i.test(id);
+		case "email":
+			// Email addresses
+			return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
 	}
 }

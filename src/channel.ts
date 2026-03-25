@@ -1,6 +1,7 @@
 import { createTelegramAdapter } from "@chat-adapter/telegram";
 import { Chat } from "chat";
 import { markdownToTelegramHtml } from "./formatter/html.ts";
+import { createEmailChannel } from "./platform/email/channel.ts";
 import { createIMessageChannel } from "./platform/imessage.ts";
 import { createSlackChannel } from "./platform/slack.ts";
 import { telegramThread } from "./platform/telegram.ts";
@@ -50,6 +51,13 @@ export function createChannel(options: CreateChannelOptions): ChannelHandle {
 			return createWeChatChannel({
 				baseUrl: credentials.WECHAT_BASE_URL ?? "https://ilinkai.weixin.qq.com",
 				token: credentials.WECHAT_BOT_TOKEN ?? "",
+				channelId: options.channelId,
+				onMessage,
+			});
+		case "email":
+			return createEmailChannel({
+				apiKey: credentials.AGENTMAIL_API_KEY ?? "",
+				inboxId: credentials.AGENTMAIL_INBOX_ID ?? "",
 				channelId: options.channelId,
 				onMessage,
 			});
