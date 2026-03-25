@@ -115,6 +115,7 @@ export function createEmailChannel(
 		from: string;
 		extractedText?: string | null;
 		text?: string | null;
+		subject?: string | null;
 		threadId: string;
 		messageId: string;
 	}): Promise<void> {
@@ -124,8 +125,12 @@ export function createEmailChannel(
 		const sender = extractEmail(msg.from);
 		lastMessageIds.set(msg.threadId, msg.messageId);
 
+		// Prepend email context so the agent knows the channel and can adapt tone
+		const subjectLine = msg.subject ? ` | Subject: "${msg.subject}"` : "";
+		const prefixed = `[Email from ${sender}${subjectLine}]\nYour reply will be sent as an email. Keep it concise and well-structured.\n\n${body}`;
+
 		const thread = emailThread(client, inboxId, msg.threadId);
-		await onMessage(thread, sender, body);
+		await onMessage(thread, sender, prefixed);
 	}
 
 	/**
@@ -153,6 +158,7 @@ export function createEmailChannel(
 							from: full.from,
 							extractedText: full.extractedText ?? null,
 							text: full.text ?? null,
+							subject: full.subject ?? null,
 							threadId: full.threadId,
 							messageId: full.messageId,
 						});
@@ -199,6 +205,7 @@ export function createEmailChannel(
 						from: msg.from,
 						extractedText: msg.extractedText ?? null,
 						text: msg.text ?? null,
+						subject: msg.subject ?? null,
 						threadId: msg.threadId,
 						messageId: msg.messageId,
 					});
