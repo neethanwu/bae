@@ -232,11 +232,6 @@ export function createEmailChannel(
 	return {
 		start: async () => {
 			console.log(`${tag} Starting email channel...`);
-			// Ensure display name is set (for inboxes created before this feature)
-			if (workspaceSlug) {
-				const { ensureDisplayName } = await import("./api.ts");
-				await ensureDisplayName(client, inboxId, workspaceSlug);
-			}
 			// Catch up on any unreplied messages from downtime
 			await catchUp();
 			// Start WebSocket monitor

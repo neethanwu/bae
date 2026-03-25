@@ -62,24 +62,3 @@ export async function createInbox(
 	});
 	return { inboxId: inbox.inboxId, email: inbox.email };
 }
-
-/**
- * Ensure an existing inbox has the correct display name.
- * Call on channel start to fix inboxes created before this feature.
- */
-export async function ensureDisplayName(
-	client: AgentMailClient,
-	inboxId: string,
-	workspaceSlug: string,
-): Promise<void> {
-	try {
-		const inbox = await client.inboxes.get(inboxId);
-		const expected = buildDisplayName(workspaceSlug);
-		if (inbox.displayName !== expected) {
-			await client.inboxes.update(inboxId, { displayName: expected });
-			console.log(`[bae:email] Updated inbox display name to "${expected}"`);
-		}
-	} catch {
-		// Best effort — don't block startup
-	}
-}
