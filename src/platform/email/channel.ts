@@ -15,6 +15,11 @@ import type {
 	PlatformConfig,
 	PlatformThread,
 } from "../types.ts";
+import {
+	MAX_ATTACHMENT_BYTES,
+	MAX_TOTAL_ATTACHMENT_BYTES,
+	sanitizeFilename,
+} from "../types.ts";
 import { createClient } from "./api.ts";
 
 export const EMAIL_CONFIG: PlatformConfig = {
@@ -122,19 +127,98 @@ export function createEmailChannel(
 		subject?: string | null;
 		threadId: string;
 		messageId: string;
+		// biome-ignore lint/suspicious/noExplicitAny: AgentMail Attachment type
+		attachments?: any[];
 	}): Promise<void> {
 		const body = msg.extractedText || msg.text || "";
-		if (!body.trim()) return; // Skip empty / attachment-only emails
+		const hasAttachments = msg.attachments && msg.attachments.length > 0;
+		if (!body.trim() && !hasAttachments) return; // Skip truly empty emails
 
 		const sender = extractEmail(msg.from);
 		lastMessageIds.set(msg.threadId, msg.messageId);
+
+		const thread = emailThread(client, inboxId, msg.threadId);
+
+		// Download email attachments
+		const attachments = await downloadEmailAttachments(
+			msg.attachments,
+			msg.messageId,
+			thread,
+		);
 
 		// Prepend email context so the agent knows the channel and can adapt tone
 		const subjectLine = msg.subject ? ` | Subject: "${msg.subject}"` : "";
 		const prefixed = `[Email from ${sender}${subjectLine}]\nYour reply will be sent as an email. Keep it concise and well-structured.\n\n${body}`;
 
-		const thread = emailThread(client, inboxId, msg.threadId);
-		await onMessage(thread, sender, prefixed);
+		await onMessage(thread, sender, prefixed, attachments);
+	}
+
+	/**
+	 * Download email attachments via AgentMail API.
+	 * Calls getAttachment() right before download for a fresh URL.
+	 */
+	async function downloadEmailAttachments(
+		// biome-ignore lint/suspicious/noExplicitAny: AgentMail Attachment type
+		emailAttachments: any[] | undefined,
+		messageId: string,
+		thread: PlatformThread,
+	): Promise<Attachment[] | undefined> {
+		if (!emailAttachments?.length) return undefined;
+
+		const results: Attachment[] = [];
+		let totalBytes = 0;
+
+		for (const att of emailAttachments) {
+			try {
+				// Get a fresh download URL right before downloading
+				const resp = await client.inboxes.messages.getAttachment(
+					inboxId,
+					messageId,
+					att.attachmentId,
+				);
+
+				const fetchResp = await fetch(resp.downloadUrl);
+				if (!fetchResp.ok) throw new Error(`HTTP ${fetchResp.status}`);
+
+				const data = Buffer.from(await fetchResp.arrayBuffer());
+
+				if (data.length > MAX_ATTACHMENT_BYTES) {
+					const sizeMB = (data.length / 1024 / 1024).toFixed(1);
+					console.warn(
+						`${tag} Skipped '${att.filename ?? "file"}' (${sizeMB} MB > 10 MB)`,
+					);
+					await thread
+						.post(
+							`Skipped '${att.filename ?? "file"}' (${sizeMB} MB) — max attachment size is 10 MB.`,
+						)
+						.catch(() => {});
+					continue;
+				}
+
+				totalBytes += data.length;
+				if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+					console.warn(`${tag} Total size exceeds 20 MB, stopping`);
+					await thread
+						.post("Some attachments skipped — total size exceeds 20 MB.")
+						.catch(() => {});
+					break;
+				}
+
+				results.push({
+					filename: sanitizeFilename(att.filename ?? "attachment"),
+					mimeType: att.contentType ?? "application/octet-stream",
+					data,
+				});
+			} catch (err) {
+				const name = att.filename ?? "file";
+				console.error(`${tag} Failed to download '${name}':`, err);
+				await thread
+					.post(`Could not download attachment '${name}'.`)
+					.catch(() => {});
+			}
+		}
+
+		return results.length > 0 ? results : undefined;
 	}
 
 	/**
@@ -165,6 +249,7 @@ export function createEmailChannel(
 							subject: full.subject ?? null,
 							threadId: full.threadId,
 							messageId: full.messageId,
+							attachments: full.attachments ?? undefined,
 						});
 					} catch (err) {
 						console.error(`${tag} Error processing catch-up message:`, err);
@@ -209,6 +294,7 @@ export function createEmailChannel(
 						subject: msg.subject ?? null,
 						threadId: msg.threadId,
 						messageId: msg.messageId,
+						attachments: msg.attachments ?? undefined,
 					});
 				}
 			} catch (err) {

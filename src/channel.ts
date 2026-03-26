@@ -9,6 +9,11 @@ import type {
 	ChannelHandle,
 	PlatformThread,
 } from "./platform/types.ts";
+import {
+	MAX_ATTACHMENT_BYTES,
+	MAX_TOTAL_ATTACHMENT_BYTES,
+	sanitizeFilename,
+} from "./platform/types.ts";
 import { createWeChatChannel } from "./platform/wechat/channel.ts";
 import type { Platform } from "./session/types.ts";
 import { createRetryState } from "./state.ts";
@@ -62,6 +67,75 @@ export function createChannel(options: CreateChannelOptions): ChannelHandle {
 				onMessage,
 			});
 	}
+}
+
+/**
+ * Download attachments from a Chat SDK message.
+ * Handles size limits and download failures gracefully.
+ */
+async function downloadChatAttachments(
+	// biome-ignore lint/suspicious/noExplicitAny: Chat SDK Attachment type varies
+	sdkAttachments: any[] | undefined,
+	thread: PlatformThread,
+): Promise<Attachment[] | undefined> {
+	if (!sdkAttachments?.length) return undefined;
+
+	const results: Attachment[] = [];
+	let totalBytes = 0;
+
+	for (const att of sdkAttachments) {
+		try {
+			let data: Buffer | undefined;
+
+			if (att.data instanceof Buffer) {
+				data = att.data;
+			} else if (typeof att.fetchData === "function") {
+				data = await att.fetchData();
+			} else if (att.url) {
+				const resp = await fetch(att.url);
+				if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+				data = Buffer.from(await resp.arrayBuffer());
+			}
+
+			if (!data) continue;
+
+			if (data.length > MAX_ATTACHMENT_BYTES) {
+				const sizeMB = (data.length / 1024 / 1024).toFixed(1);
+				console.warn(
+					`[bae:tg] Skipped attachment '${att.name ?? "file"}' (${sizeMB} MB > 10 MB limit)`,
+				);
+				await thread
+					.post(
+						`Skipped '${att.name ?? "file"}' (${sizeMB} MB) — max attachment size is 10 MB.`,
+					)
+					.catch(() => {});
+				continue;
+			}
+
+			totalBytes += data.length;
+			if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+				console.warn("[bae:tg] Total attachment size exceeds 20 MB, stopping");
+				await thread
+					.post("Some attachments skipped — total size exceeds 20 MB.")
+					.catch(() => {});
+				break;
+			}
+
+			results.push({
+				filename: sanitizeFilename(att.name ?? `attachment.${att.type ?? "bin"}`),
+				mimeType: att.mimeType ?? "application/octet-stream",
+				data,
+			});
+		} catch (err) {
+			const name = att.name ?? "file";
+			console.error(`[bae:tg] Failed to download attachment '${name}':`, err);
+			await thread
+				.post(`Could not download attachment '${name}'.`)
+				.catch(() => {});
+		}
+	}
+
+	return results.length > 0 ? results : undefined;
 }
 
 function createTelegramChannel(
@@ -184,7 +258,7 @@ function createTelegramChannel(
 		fallbackStreamingPlaceholderText: "...",
 	});
 
-	// Wrap Chat SDK callbacks: extract userId/text, wrap Thread → PlatformThread
+	// Wrap Chat SDK callbacks: extract userId/text/attachments, wrap Thread → PlatformThread
 	const handleChatMessage = async (
 		chatThread: Parameters<Parameters<typeof bot.onDirectMessage>[0]>[0],
 		message: Parameters<Parameters<typeof bot.onDirectMessage>[0]>[1],
@@ -192,7 +266,14 @@ function createTelegramChannel(
 		const thread = telegramThread(chatThread);
 		const userId = message.author?.userId ?? "";
 		const text = message.text ?? "";
-		await onMessage(thread, userId, text);
+
+		// Extract attachments from Chat SDK message
+		const attachments = await downloadChatAttachments(
+			message.attachments,
+			thread,
+		);
+
+		await onMessage(thread, userId, text, attachments);
 	};
 
 	bot.onDirectMessage(async (thread, message) => {

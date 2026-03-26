@@ -14,6 +14,11 @@ import type {
 	PlatformConfig,
 	PlatformThread,
 } from "./types.ts";
+import {
+	MAX_ATTACHMENT_BYTES,
+	MAX_TOTAL_ATTACHMENT_BYTES,
+	sanitizeFilename,
+} from "./types.ts";
 
 export const SLACK_CONFIG: PlatformConfig = {
 	splitSoft: 10000,
@@ -97,6 +102,73 @@ export interface CreateSlackChannelOptions {
 	) => Promise<void>;
 }
 
+/**
+ * Download file attachments from a Slack message.
+ * Slack's url_private requires Bearer token authentication.
+ */
+async function downloadSlackFiles(
+	// biome-ignore lint/suspicious/noExplicitAny: Slack event files type
+	files: any[] | undefined,
+	botToken: string,
+	thread: PlatformThread,
+): Promise<Attachment[] | undefined> {
+	if (!files?.length) return undefined;
+
+	const results: Attachment[] = [];
+	let totalBytes = 0;
+
+	for (const file of files) {
+		try {
+			const url = file.url_private;
+			if (!url) continue;
+
+			const resp = await fetch(url, {
+				headers: { Authorization: `Bearer ${botToken}` },
+			});
+			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+			const data = Buffer.from(await resp.arrayBuffer());
+
+			if (data.length > MAX_ATTACHMENT_BYTES) {
+				const sizeMB = (data.length / 1024 / 1024).toFixed(1);
+				console.warn(
+					`[bae:slack] Skipped '${file.name ?? "file"}' (${sizeMB} MB > 10 MB)`,
+				);
+				await thread
+					.post(
+						`Skipped '${file.name ?? "file"}' (${sizeMB} MB) — max attachment size is 10 MB.`,
+					)
+					.catch(() => {});
+				continue;
+			}
+
+			totalBytes += data.length;
+			if (totalBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+				console.warn("[bae:slack] Total size exceeds 20 MB, stopping");
+				await thread
+					.post("Some attachments skipped — total size exceeds 20 MB.")
+					.catch(() => {});
+				break;
+			}
+
+			results.push({
+				filename: sanitizeFilename(file.name ?? "attachment"),
+				mimeType: file.mimetype ?? "application/octet-stream",
+				data,
+			});
+		} catch (err) {
+			const name = file.name ?? "file";
+			console.error(
+				`[bae:slack] Failed to download '${name}':`,
+				err,
+			);
+			await thread.post(`Could not download attachment '${name}'.`).catch(() => {});
+		}
+	}
+
+	return results.length > 0 ? results : undefined;
+}
+
 export function createSlackChannel(
 	options: CreateSlackChannelOptions,
 ): ChannelHandle {
@@ -122,14 +194,32 @@ export function createSlackChannel(
 	socket.on("message", async ({ ack, event }) => {
 		await ack(); // Must ack within 3 seconds
 		if (event.channel_type !== "im") return;
-		if (event.bot_id || event.subtype) return;
-		if (!event.text || !event.user) return;
+		if (event.bot_id) return;
+		// Allow file_share subtype for attachment support, filter others
+		if (event.subtype && event.subtype !== "file_share") return;
+
+		const hasFiles = event.files?.length > 0;
+		if (!event.text && !event.user && !hasFiles) return;
+		if (!event.user) return;
 
 		const dedupKey = event.client_msg_id || event.ts;
 		if (isDuplicate(dedupKey)) return;
 
 		const thread = slackThread(web, event.channel, event.thread_ts || event.ts);
-		await options.onMessage(thread, event.user, event.text);
+
+		// Download file attachments
+		const attachments = await downloadSlackFiles(
+			event.files,
+			options.botToken,
+			thread,
+		);
+
+		await options.onMessage(
+			thread,
+			event.user,
+			event.text ?? "",
+			attachments,
+		);
 	});
 
 	// /new slash command
