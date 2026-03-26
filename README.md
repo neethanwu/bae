@@ -23,7 +23,6 @@ Your Phone                     Your Machine
 ┌─────────────┐               ┌─────────────────────────────────┐
 │  Telegram   │               │                                 │
 │  Slack      │◀── Bae ──────▶│  Claude Code / Codex / OpenCode │
-│  iMessage   │               │                                 │
 │  WeChat     │               │                                 │
 │  Email      │               │                                 │
 └─────────────┘               │  Your files, skills, MCP tools  │
@@ -35,7 +34,7 @@ Your Phone                     Your Machine
 - **No API keys needed** — uses your existing agent subscription (Claude Max, etc.)
 - **Full agent power** — file editing, bash, code generation, web search — everything your agent can do locally
 - **No tunnel or server** — all connections are outbound (long polling, Socket Mode, database polling)
-- **Multi-platform** — Telegram, Slack, iMessage, WeChat, and Email today. Discord coming soon.
+- **Multi-platform** — Telegram, Slack, WeChat, and Email today. Discord coming soon.
 - **Conversation continuity** — messages in the same thread share agent context
 - **Agent-agnostic** — swap between agents without losing project context
 
@@ -108,22 +107,6 @@ The wizard walks you through everything — pick your platform, enter credential
 **Find your user ID:** Click your profile in Slack → **⋯** menu → **Copy member ID**.
 
 Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
-
-### iMessage (macOS only)
-
-1. Open **System Settings → Privacy & Security → Full Disk Access**
-2. Add your terminal app (Terminal, iTerm, Warp, etc.) — this allows Bae to read your Messages database. **Keep this enabled** as long as you use Bae with iMessage.
-3. **Restart your terminal** (required — macOS doesn't apply the permission until restart)
-4. Run `bae init`, select iMessage
-
-**How it works:** iMessage runs locally on your Mac — no separate account or phone number needed. You text yourself ("Note to Self") and the agent responds in the same conversation. Agent replies are prefixed with `Bae:` so you can tell them apart.
-
-**What to expect:**
-- Messages appear on both sides of the chat (this is normal for self-chat in iMessage — Apple shows both the sent and received copy)
-- Only works while your Mac is awake and running Bae
-- Plain text only (no formatting, no streaming)
-
-> We're working on a hosted version that will give Bae its own iMessage identity — no self-chat, no double bubbles, works from any device. Stay tuned.
 
 ### WeChat
 
@@ -209,7 +192,6 @@ bae workspace set-executor research codex    # coming soon
 |----------|-----------|-----------|------------|
 | Telegram | Long polling | Edit-in-place | HTML |
 | Slack | Socket Mode (WebSocket) | Native streaming API | Markdown |
-| iMessage | Database polling (2s) | No streaming | Plain text |
 | WeChat | Long polling (iLink API) | No streaming | Plain text |
 | Email | WebSocket (AgentMail) | No streaming | Plain text |
 
@@ -226,7 +208,7 @@ Bae is designed to stay running without babysitting:
 
 ## Status
 
-Phase 3 — Telegram, Slack, iMessage, WeChat, Email, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI, auto-updates.
+Phase 3 — Telegram, Slack, WeChat, Email, multi-workspace, session continuity, streaming, steering, daemon mode, interactive CLI, auto-updates.
 
 ## Changelog
 

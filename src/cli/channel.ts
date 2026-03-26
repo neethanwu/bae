@@ -65,7 +65,7 @@ export async function channelCommand(
     remove <channel-id>     Remove a channel
 
   Options (add):
-    --platform <name>    Platform: telegram, slack, imessage, wechat, email
+    --platform <name>    Platform: telegram, slack, wechat, email
     --label <text>       Display label for the channel
 
   Options (list):
@@ -197,17 +197,11 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	}
 
 	let platform: Platform;
-	const VALID_PLATFORMS = new Set([
-		"telegram",
-		"slack",
-		"imessage",
-		"wechat",
-		"email",
-	]);
+	const VALID_PLATFORMS = new Set(["telegram", "slack", "wechat", "email"]);
 	if (flags.platform) {
 		if (!VALID_PLATFORMS.has(flags.platform)) {
 			console.error(
-				`Unsupported platform: "${flags.platform}"\nAvailable: telegram, slack, imessage, wechat, email`,
+				`Unsupported platform: "${flags.platform}"\nAvailable: telegram, slack, wechat, email`,
 			);
 			process.exit(1);
 		}
@@ -225,12 +219,6 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 		];
 		allPlatforms.push({ value: "wechat", label: "WeChat" });
 		allPlatforms.push({ value: "email", label: "Email (AgentMail)" });
-		if (process.platform === "darwin") {
-			allPlatforms.push({
-				value: "imessage",
-				label: "iMessage (macOS only)",
-			});
-		}
 
 		const platformOptions = allPlatforms.filter(
 			(p) => !existingPlatforms.has(p.value),
@@ -270,7 +258,6 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	const userIdHints: Record<string, string> = {
 		telegram: "To find your Telegram user ID, message @userinfobot",
 		slack: "To find your Slack user ID: profile → ⋯ menu → Copy member ID",
-		imessage: "Use your phone number (+1234567890) or Apple ID email address",
 		email: "Your email address (who can message this agent)",
 	};
 	p.log.info(userIdHints[platform] ?? "Enter allowed user IDs");
@@ -278,8 +265,6 @@ async function addChannel(args: string[], store: Store): Promise<void> {
 	const userIdErrors: Record<string, string> = {
 		telegram: "Telegram user IDs must be numeric",
 		slack: "Slack user IDs must start with U or W (e.g. U0123ABCDE)",
-		imessage:
-			"iMessage user IDs must be phone numbers (+1234567890) or email addresses",
 		email: "Must be a valid email address",
 	};
 
@@ -553,24 +538,6 @@ async function promptCredentials(
 			}
 			return { SLACK_BOT_TOKEN: botToken, SLACK_APP_TOKEN: appToken };
 		}
-		case "imessage": {
-			if (process.platform !== "darwin") {
-				console.error("iMessage local mode is only available on macOS.");
-				process.exit(1);
-			}
-			p.log.info(
-				"iMessage local mode reads from your Mac's Messages database.\n" +
-					"Requirements:\n" +
-					"  1. macOS with iMessage signed in\n" +
-					"  2. Full Disk Access for your terminal (System Settings → Privacy & Security)\n" +
-					"  3. Automation permission for Messages.app (granted on first send)",
-			);
-			p.log.warn(
-				"Note: Full Disk Access grants read access to ALL your messages, not just conversations with this channel.",
-			);
-			// No API tokens needed — write a marker so startup doesn't skip this channel
-			return { BAE_LOCAL_MODE: "true" };
-		}
 		case "wechat": {
 			const { loginWithQr, DEFAULT_BASE_URL } = await import(
 				"../platform/wechat/auth.ts"
@@ -653,41 +620,6 @@ async function validateCredentials(
 			}
 			break;
 		}
-		case "imessage": {
-			// Validate macOS and chat.db access
-			if (process.platform !== "darwin") {
-				console.error("iMessage requires macOS.");
-				process.exit(1);
-			}
-			try {
-				const { accessSync, constants } = await import("node:fs");
-				const { join } = await import("node:path");
-				const { homedir } = await import("node:os");
-				accessSync(join(homedir(), "Library/Messages/chat.db"), constants.R_OK);
-				p.log.success("Messages database accessible");
-			} catch {
-				console.error(
-					"Cannot read Messages database. Full Disk Access is required.",
-				);
-				// Open System Settings directly to the Full Disk Access page
-				try {
-					const { execSync } = await import("node:child_process");
-					console.log("Opening System Settings → Full Disk Access...");
-					execSync(
-						"open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'",
-					);
-					console.log(
-						"Add your terminal app, then restart the terminal and try again.",
-					);
-				} catch {
-					console.log(
-						"Open manually: System Settings → Privacy & Security → Full Disk Access",
-					);
-				}
-				process.exit(1);
-			}
-			break;
-		}
 		case "wechat": {
 			const token = creds.WECHAT_BOT_TOKEN;
 			if (!token) throw new Error("Missing WECHAT_BOT_TOKEN");
@@ -726,9 +658,6 @@ function validateUserId(id: string, platform: Platform): boolean {
 			return /^\d+$/.test(id);
 		case "slack":
 			return /^[UW][A-Z0-9]+$/.test(id);
-		case "imessage":
-			// Phone numbers (+1234567890) or email addresses
-			return /^\+\d+$/.test(id) || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
 		case "wechat":
 			// WeChat user IDs: hex string @im.wechat
 			return /^[a-f0-9]+@im\.wechat$/i.test(id);

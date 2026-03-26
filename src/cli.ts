@@ -281,7 +281,6 @@ async function start() {
 	const { startServer } = await import("./server.ts");
 	const { TELEGRAM_CONFIG } = await import("./platform/telegram.ts");
 	const { SLACK_CONFIG } = await import("./platform/slack.ts");
-	const { IMESSAGE_CONFIG } = await import("./platform/imessage.ts");
 	const { WECHAT_CONFIG } = await import("./platform/wechat/channel.ts");
 	const { EMAIL_CONFIG } = await import("./platform/email/channel.ts");
 	type PlatformConfigType = import("./platform/types.ts").PlatformConfig;
@@ -293,8 +292,6 @@ async function start() {
 				return TELEGRAM_CONFIG;
 			case "slack":
 				return SLACK_CONFIG;
-			case "imessage":
-				return IMESSAGE_CONFIG;
 			case "wechat":
 				return WECHAT_CONFIG;
 			case "email":

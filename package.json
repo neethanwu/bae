@@ -59,7 +59,6 @@
     "@chat-adapter/telegram": "^4.20.2",
     "@clack/prompts": "^1.1.0",
     "@hono/node-server": "^1.19.11",
-    "@photon-ai/imessage-kit": "^2.1.2",
     "@slack/socket-mode": "^2.0.6",
     "@slack/web-api": "^7.15.0",
     "agentmail": "^0.4.12",

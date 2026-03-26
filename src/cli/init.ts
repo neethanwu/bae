@@ -253,48 +253,6 @@ async function collectCredentials(
 			WECHAT_BASE_URL: result.baseUrl,
 		};
 		displayName = "WeChat";
-	} else if (platform === "imessage") {
-		if (process.platform !== "darwin") {
-			p.log.error("iMessage requires macOS.");
-			process.exit(1);
-		}
-		p.log.info(
-			"iMessage local mode reads from your Mac's Messages database.\n" +
-				"Requirements:\n" +
-				"  1. macOS with iMessage signed in\n" +
-				"  2. Full Disk Access for your terminal\n" +
-				"  3. Automation permission for Messages.app",
-		);
-		p.log.warn(
-			"Note: Full Disk Access grants read access to ALL your messages.",
-		);
-
-		try {
-			const { accessSync, constants } = await import("node:fs");
-			accessSync(join(homedir(), "Library/Messages/chat.db"), constants.R_OK);
-			p.log.success("Messages database accessible");
-		} catch {
-			p.log.error(
-				"Cannot read Messages database. Full Disk Access is required.",
-			);
-			try {
-				p.log.info("Opening System Settings → Full Disk Access...");
-				execSync(
-					"open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'",
-				);
-				p.log.info(
-					"Add your terminal app, then restart the terminal and try again.",
-				);
-			} catch {
-				p.log.info(
-					"Open manually: System Settings → Privacy & Security → Full Disk Access",
-				);
-			}
-			process.exit(1);
-		}
-
-		credentials = { BAE_LOCAL_MODE: "true" };
-		displayName = "iMessage";
 	} else if (platform === "email") {
 		const { resolveApiKey, resolveInbox } = await import(
 			"./email-onboarding.ts"
@@ -325,7 +283,6 @@ async function collectUserIds(platform: Platform): Promise<string[]> {
 		telegram:
 			"To find your Telegram user ID, message @userinfobot on Telegram.",
 		slack: "To find your Slack user ID: profile → ⋯ menu → Copy member ID",
-		imessage: "Use your phone number (+1234567890) or Apple ID email.",
 		wechat:
 			"Your WeChat user ID was shown during QR login (e.g. abc123@im.wechat).",
 		email: "Enter the email address(es) allowed to message this channel.",
@@ -335,7 +292,6 @@ async function collectUserIds(platform: Platform): Promise<string[]> {
 	const placeholders: Record<string, string> = {
 		telegram: "123456789 (comma-separated for multiple)",
 		slack: "U0123ABCDE (comma-separated for multiple)",
-		imessage: "+1234567890 or email@example.com",
 		wechat: "abc123@im.wechat",
 		email: "user@example.com (comma-separated for multiple)",
 	};
@@ -350,13 +306,6 @@ async function collectUserIds(platform: Platform): Promise<string[]> {
 				return "Telegram user IDs must be numeric";
 			if (platform === "slack" && ids.some((id) => !/^[UW][A-Z0-9]+$/.test(id)))
 				return "Slack user IDs must start with U or W";
-			if (
-				platform === "imessage" &&
-				ids.some(
-					(id) => !/^\+\d+$/.test(id) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id),
-				)
-			)
-				return "iMessage user IDs must be phone numbers (+1234567890) or email addresses";
 			if (
 				platform === "wechat" &&
 				ids.some((id) => !/^[a-f0-9]+@im\.wechat$/i.test(id))
@@ -389,16 +338,12 @@ async function collectUserIds(platform: Platform): Promise<string[]> {
 }
 
 function selectPlatformOptions(): { value: string; label: string }[] {
-	const options = [
+	return [
 		{ value: "telegram", label: "Telegram" },
 		{ value: "slack", label: "Slack" },
 		{ value: "wechat", label: "WeChat" },
 		{ value: "email", label: "Email (AgentMail)" },
 	];
-	if (process.platform === "darwin") {
-		options.push({ value: "imessage", label: "iMessage (macOS only)" });
-	}
-	return options;
 }
 
 // ── Full setup flow (workspace-first) ───────────────────────────────────
@@ -542,7 +487,6 @@ async function manageWorkspace(
 ): Promise<boolean> {
 	const channels = store.getChannelsByWorkspace(workspaceId);
 	const allPlatforms = ["telegram", "slack", "wechat", "email"];
-	if (process.platform === "darwin") allPlatforms.push("imessage");
 	const usedPlatforms = new Set<string>(channels.map((ch) => ch.platform));
 	const hasAvailable = allPlatforms.some((pl) => !usedPlatforms.has(pl));
 
@@ -604,14 +548,7 @@ export async function runInit(argv: string[] = []): Promise<void> {
 			let credentials: Record<string, string>;
 			let displayName: string;
 
-			if (platform === "imessage") {
-				if (process.platform !== "darwin") {
-					console.error("iMessage requires macOS.");
-					process.exit(1);
-				}
-				credentials = { BAE_LOCAL_MODE: "true" };
-				displayName = "iMessage";
-			} else if (platform === "slack") {
+			if (platform === "slack") {
 				const botToken = flags["bot-token"] || flags.token;
 				const appToken = flags["app-token"];
 				if (!botToken?.startsWith("xoxb-")) {
