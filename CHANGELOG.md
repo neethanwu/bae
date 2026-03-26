@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-03-26
+
+### Added
+- Inbound image & file support — users can send images, PDFs, code files, and any attachment via Telegram, Slack, or Email
+- Images delivered inline to Claude Code as base64 content blocks (verified working with stream-json)
+- All attachments saved to `.bae-attachments/` in workspace for agent access
+- Telegram: download via Chat SDK `fetchData()`, size limits, graceful failure handling
+- Slack: `file_share` subtype support, authenticated `url_private` download
+- Email: AgentMail `getAttachment()` download, attachment-only emails no longer skipped
+- Filename sanitization to prevent path traversal
+- Per-file (10 MB) and per-message (20 MB) attachment size limits with user-facing messages
+
+### Fixed
+- Email WebSocket now retries with exponential backoff instead of giving up on first connect failure
+- Email replies now buffer entire agent turn into a single reply instead of splitting at tool boundaries
+- Email discards intermediate "thinking" text (e.g., "Let me read the PDF") — only sends final response
+
 ## [0.2.8] - 2026-03-25
 
 ### Added
@@ -229,6 +246,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Auto-create workspace directory, default `~/baesment`
 
 [Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.8...HEAD
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/neethanwu/bae/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/neethanwu/bae/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/neethanwu/bae/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/neethanwu/bae/compare/v0.2.5...v0.2.6
