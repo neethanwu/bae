@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-03-25
+
+### Added
+- Email (AgentMail) platform adapter — WebSocket for real-time inbound, API key auth, one inbox per workspace
+- Full CLI onboarding for email — API key reuse across workspaces, inbox creation/reassignment
+- Email context prefix for agent tone adaptation ("Bae from <workspace>")
+- Workspace/platform context in all message logs for multi-workspace debugging
+
+### Changed
+- Removed iMessage platform — will revisit with a managed API service (Blooio, LoopMessage, or similar)
+
+### Fixed
+- Email display name format and WebSocket subscription timing
+- Init wizard no longer prompts redundantly for workspace directory when path is already known
+- Unified log tag format to `[bae:workspace/platform]` across all adapters
+
 ## [0.2.7] - 2026-03-23
 
 ### Added
@@ -212,7 +228,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Factory-based initialization (`createBot`, `createBridge`)
 - Auto-create workspace directory, default `~/baesment`
 
-[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.7...HEAD
+[Unreleased]: https://github.com/neethanwu/bae/compare/v0.2.8...HEAD
+[0.2.8]: https://github.com/neethanwu/bae/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/neethanwu/bae/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/neethanwu/bae/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/neethanwu/bae/compare/v0.2.4...v0.2.5
