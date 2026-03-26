@@ -119,12 +119,18 @@ Slack uses Socket Mode (outbound WebSocket) — no tunnel or public URL needed.
 
 ### Email (AgentMail)
 
-1. Run `bae init` (or `bae channel add --platform email`)
-2. Sign up for a free [AgentMail](https://agentmail.to) account (3 inboxes, 3,000 emails/month)
-3. Paste your API key — Bae creates an inbox for your agent
-4. Done — send an email to your agent's address to start a conversation
+1. Go to [console.agentmail.to](https://console.agentmail.to) — sign up for a free account
+2. **Settings → API Keys → Create API Key** — copy the key
+3. Run `bae init` (or `bae channel add --platform email`)
+4. Paste your API key when prompted
+5. Name your agent's inbox (e.g. `myproject`) — your agent gets `myproject@agentmail.to`
+6. Done — send an email to your agent's address to start a conversation
 
-**How it works:** Email uses [AgentMail](https://agentmail.to) for inbox management — WebSocket for real-time inbound email, no tunnel needed. Each email thread maps to an agent session. Replies are sent in-thread automatically. You own your AgentMail account; Bae just manages the connection.
+**Free tier:** 3 inboxes, 3,000 emails/month. One inbox per workspace.
+
+**How it works:** Email uses [AgentMail](https://agentmail.to) for real-time inbox management — outbound WebSocket, no tunnel needed. Each email thread maps to an agent session with full conversation history. Replies are sent in-thread automatically. You own your AgentMail account and API key; Bae just connects to it.
+
+**Multi-workspace:** Your API key is shared across workspaces (one account, many inboxes). If all 3 inboxes are in use, Bae will offer to reassign one from another workspace or prompt you to upgrade.
 
 ## Usage
 
