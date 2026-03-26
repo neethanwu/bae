@@ -69,6 +69,20 @@ export function createChannel(options: CreateChannelOptions): ChannelHandle {
 	}
 }
 
+/** Map common MIME types to file extensions for better fallback filenames. */
+function fallbackFilename(mimeType?: string, type?: string): string {
+	const ext =
+		mimeType?.split("/")[1]?.replace("jpeg", "jpg") ??
+		(type === "image"
+			? "jpg"
+			: type === "video"
+				? "mp4"
+				: type === "audio"
+					? "mp3"
+					: "bin");
+	return `attachment.${ext}`;
+}
+
 /**
  * Download attachments from a Chat SDK message.
  * Handles size limits and download failures gracefully.
@@ -80,11 +94,16 @@ async function downloadChatAttachments(
 ): Promise<Attachment[] | undefined> {
 	if (!sdkAttachments?.length) return undefined;
 
+	console.log(`[bae:tg] Downloading ${sdkAttachments.length} attachment(s)...`);
+
 	const results: Attachment[] = [];
 	let totalBytes = 0;
 
 	for (const att of sdkAttachments) {
 		try {
+			console.log(
+				`[bae:tg] Attachment: type=${att.type}, name=${att.name}, mimeType=${att.mimeType}, hasData=${!!att.data}, hasFetchData=${typeof att.fetchData === "function"}, hasUrl=${!!att.url}`,
+			);
 			let data: Buffer | undefined;
 
 			if (att.data instanceof Buffer) {
@@ -123,7 +142,7 @@ async function downloadChatAttachments(
 
 			results.push({
 				filename: sanitizeFilename(
-					att.name ?? `attachment.${att.type ?? "bin"}`,
+					att.name ?? fallbackFilename(att.mimeType, att.type),
 				),
 				mimeType: att.mimeType ?? "application/octet-stream",
 				data,
@@ -268,6 +287,10 @@ function createTelegramChannel(
 		const thread = telegramThread(chatThread);
 		const userId = message.author?.userId ?? "";
 		const text = message.text ?? "";
+
+		console.log(
+			`[bae:tg] Message: text=${text.length > 0 ? "yes" : "no"}, attachments=${message.attachments?.length ?? 0}`,
+		);
 
 		// Extract attachments from Chat SDK message
 		const attachments = await downloadChatAttachments(

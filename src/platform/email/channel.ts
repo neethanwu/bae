@@ -263,58 +263,88 @@ export function createEmailChannel(
 
 	/**
 	 * Connect WebSocket and monitor for incoming emails.
+	 * Retries with exponential backoff on connection failure.
 	 */
 	async function monitor(): Promise<void> {
-		if (aborted) return;
+		let consecutiveFailures = 0;
+		const MAX_BACKOFF_MS = 5 * 60 * 1000; // 5 minutes
 
-		try {
-			socket = await client.websockets.connect();
-		} catch (err) {
-			console.error(`${tag} WebSocket connect failed:`, err);
-			return;
-		}
-
-		// SDK's connect() resolves after the socket is already open,
-		// so subscribe immediately — don't rely on the "open" event.
-		console.log(`${tag} WebSocket connected, subscribing...`);
-		socket.sendSubscribe({
-			type: "subscribe",
-			inboxIds: [inboxId],
-			eventTypes: ["message.received"],
-		});
-
-		socket.on("message", async (event) => {
+		while (!aborted) {
 			try {
-				if (event.type === "event" && event.eventType === "message.received") {
-					const msg = event.message;
-					await processMessage({
-						from: msg.from,
-						extractedText: msg.extractedText ?? null,
-						text: msg.text ?? null,
-						subject: msg.subject ?? null,
-						threadId: msg.threadId,
-						messageId: msg.messageId,
-						attachments: msg.attachments ?? undefined,
-					});
-				}
-			} catch (err) {
-				console.error(`${tag} Error handling WebSocket event:`, err);
-			}
-		});
-
-		socket.on("close", (event) => {
-			if (!aborted) {
-				console.warn(
-					`${tag} WebSocket closed (code=${event.code}, reason=${event.reason || "none"}). SDK will attempt reconnection.`,
+				socket = await client.websockets.connect();
+				consecutiveFailures = 0;
+			} catch {
+				consecutiveFailures++;
+				const backoff = Math.min(
+					1000 * 2 ** Math.min(consecutiveFailures, 8),
+					MAX_BACKOFF_MS,
 				);
+				const backoffSec = Math.round(backoff / 1000);
+				console.warn(
+					`${tag} WebSocket connect failed (attempt ${consecutiveFailures}), retrying in ${backoffSec}s`,
+				);
+				await sleep(backoff);
+				continue;
 			}
-		});
 
-		socket.on("error", (err) => {
+			// SDK's connect() resolves after the socket is already open,
+			// so subscribe immediately — don't rely on the "open" event.
+			console.log(`${tag} WebSocket connected, subscribing...`);
+			socket.sendSubscribe({
+				type: "subscribe",
+				inboxIds: [inboxId],
+				eventTypes: ["message.received"],
+			});
+
+			// Wait for socket to close before reconnecting
+			await new Promise<void>((resolve) => {
+				socket?.on("message", async (event) => {
+					try {
+						if (
+							event.type === "event" &&
+							event.eventType === "message.received"
+						) {
+							const msg = event.message;
+							await processMessage({
+								from: msg.from,
+								extractedText: msg.extractedText ?? null,
+								text: msg.text ?? null,
+								subject: msg.subject ?? null,
+								threadId: msg.threadId,
+								messageId: msg.messageId,
+								attachments: msg.attachments ?? undefined,
+							});
+						}
+					} catch (err) {
+						console.error(`${tag} Error handling WebSocket event:`, err);
+					}
+				});
+
+				socket?.on("close", (event) => {
+					if (!aborted) {
+						console.warn(
+							`${tag} WebSocket closed (code=${event.code}, reason=${event.reason || "none"}), reconnecting...`,
+						);
+					}
+					resolve();
+				});
+
+				socket?.on("error", (err) => {
+					if (!aborted) {
+						console.error(`${tag} WebSocket error:`, err);
+					}
+				});
+			});
+
+			// Brief pause before reconnect after a clean close
 			if (!aborted) {
-				console.error(`${tag} WebSocket error:`, err);
+				await sleep(1000);
 			}
-		});
+		}
+	}
+
+	function sleep(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 
 	return {
