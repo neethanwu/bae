@@ -158,11 +158,10 @@ async function downloadSlackFiles(
 			});
 		} catch (err) {
 			const name = file.name ?? "file";
-			console.error(
-				`[bae:slack] Failed to download '${name}':`,
-				err,
-			);
-			await thread.post(`Could not download attachment '${name}'.`).catch(() => {});
+			console.error(`[bae:slack] Failed to download '${name}':`, err);
+			await thread
+				.post(`Could not download attachment '${name}'.`)
+				.catch(() => {});
 		}
 	}
 
@@ -214,12 +213,7 @@ export function createSlackChannel(
 			thread,
 		);
 
-		await options.onMessage(
-			thread,
-			event.user,
-			event.text ?? "",
-			attachments,
-		);
+		await options.onMessage(thread, event.user, event.text ?? "", attachments);
 	});
 
 	// /new slash command

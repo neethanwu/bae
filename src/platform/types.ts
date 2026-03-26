@@ -46,7 +46,7 @@ export const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export function sanitizeFilename(name: string): string {
 	let safe = name
 		.replace(/[/\\]/g, "_") // strip path separators
-		.replace(/[^\w.\-]/g, "_") // replace non-alphanumeric (except . - _)
+		.replace(/[^\w.-]/g, "_") // replace non-alphanumeric (except . - _)
 		.replace(/_{2,}/g, "_") // collapse multiple underscores
 		.replace(/^\.+/, "_"); // no leading dots (hidden files)
 	if (safe.length > 200) {

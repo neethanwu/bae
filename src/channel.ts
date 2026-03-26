@@ -122,7 +122,9 @@ async function downloadChatAttachments(
 			}
 
 			results.push({
-				filename: sanitizeFilename(att.name ?? `attachment.${att.type ?? "bin"}`),
+				filename: sanitizeFilename(
+					att.name ?? `attachment.${att.type ?? "bin"}`,
+				),
 				mimeType: att.mimeType ?? "application/octet-stream",
 				data,
 			});

@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
@@ -6,10 +7,9 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { makeUserMessage, saveAttachments } from "./claude.ts";
 import type { Attachment } from "../platform/types.ts";
 import { sanitizeFilename } from "../platform/types.ts";
+import { makeUserMessage, saveAttachments } from "./claude.ts";
 
 const TMP_DIR = join(import.meta.dir, "../../.test-workspace");
 
@@ -85,9 +85,7 @@ describe("makeUserMessage", () => {
 				data: Buffer.from([0xff, 0xd8]),
 			},
 		];
-		const msg = JSON.parse(
-			makeUserMessage("", "sess", attachments, TMP_DIR),
-		);
+		const msg = JSON.parse(makeUserMessage("", "sess", attachments, TMP_DIR));
 
 		const blocks = msg.message.content;
 		expect(blocks[0].type).toBe("text");
@@ -175,7 +173,7 @@ describe("saveAttachments", () => {
 		expect(paths[0]).toMatch(/^\.bae-attachments\/[a-z0-9]+-test\.txt$/);
 
 		// File actually exists
-		const fullPath = join(TMP_DIR, paths[0]!);
+		const fullPath = join(TMP_DIR, paths[0] ?? "");
 		expect(existsSync(fullPath)).toBe(true);
 		expect(readFileSync(fullPath, "utf-8")).toBe("hello world");
 	});
@@ -248,7 +246,7 @@ describe("sanitizeFilename", () => {
 	});
 
 	test("truncates long names preserving extension", () => {
-		const long = "a".repeat(250) + ".png";
+		const long = `${"a".repeat(250)}.png`;
 		const result = sanitizeFilename(long);
 		expect(result.length).toBeLessThanOrEqual(200);
 		expect(result).toEndWith(".png");
@@ -259,9 +257,7 @@ describe("sanitizeFilename", () => {
 	});
 
 	test("preserves normal filenames", () => {
-		expect(sanitizeFilename("screenshot-2026.png")).toBe(
-			"screenshot-2026.png",
-		);
+		expect(sanitizeFilename("screenshot-2026.png")).toBe("screenshot-2026.png");
 		expect(sanitizeFilename("data_file.csv")).toBe("data_file.csv");
 	});
 });

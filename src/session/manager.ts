@@ -1,6 +1,6 @@
 import { ClaudeCodeExecutor } from "../executor/claude.ts";
-import type { Attachment } from "../platform/types.ts";
 import type { ExecuteResult, Executor } from "../executor/types.ts";
+import type { Attachment } from "../platform/types.ts";
 import type { AgentEvent } from "../stream/types.ts";
 import type { Store } from "./store.ts";
 import type { ExecutorType } from "./types.ts";

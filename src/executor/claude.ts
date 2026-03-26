@@ -90,8 +90,7 @@ export function makeUserMessage(
 		const textParts: string[] = [];
 		if (text.trim()) textParts.push(text);
 
-		for (let i = 0; i < attachments.length; i++) {
-			const att = attachments[i]!;
+		for (const [i, att] of attachments.entries()) {
 			if (att.mimeType.startsWith("image/")) {
 				// Image: inline as base64 content block
 				contentBlocks.push({
@@ -109,7 +108,8 @@ export function makeUserMessage(
 		}
 
 		// Always include a text block (first, per Messages API convention)
-		const finalText = textParts.length > 0 ? textParts.join("\n") : "(see attached)";
+		const finalText =
+			textParts.length > 0 ? textParts.join("\n") : "(see attached)";
 		contentBlocks.unshift({ type: "text", text: finalText });
 
 		content = contentBlocks;
