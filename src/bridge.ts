@@ -6,7 +6,11 @@ import {
 	pick,
 } from "./commands.ts";
 import { formatToolStatus } from "./formatter/common.ts";
-import type { PlatformConfig, PlatformThread } from "./platform/types.ts";
+import type {
+	Attachment,
+	PlatformConfig,
+	PlatformThread,
+} from "./platform/types.ts";
 import { SessionManager } from "./session/manager.ts";
 import type { Store } from "./session/store.ts";
 import type { AgentEvent } from "./stream/types.ts";
@@ -24,6 +28,7 @@ export interface BridgeHandle {
 		text: string,
 		channelId: string,
 		config: PlatformConfig,
+		attachments?: Attachment[],
 	): Promise<void>;
 	shutdown(): Promise<void>;
 }
@@ -43,6 +48,7 @@ export async function createBridge(
 		text: string,
 		channelId: string,
 		config: PlatformConfig,
+		attachments?: Attachment[],
 	): Promise<void> {
 		// Per-channel auth check
 		const channel = store.getChannel(channelId);
@@ -57,8 +63,9 @@ export async function createBridge(
 			return;
 		}
 
-		if (!text || text.trim() === "") {
-			await thread.post("Only text messages are supported.");
+		const hasAttachments = attachments && attachments.length > 0;
+		if ((!text || text.trim() === "") && !hasAttachments) {
+			await thread.post("Send a message, image, or file to get started.");
 			return;
 		}
 
@@ -87,6 +94,7 @@ export async function createBridge(
 				channelId,
 				conversationId,
 				text,
+				attachments,
 			);
 
 			// Steering fast path: message sent to active agent's stdin

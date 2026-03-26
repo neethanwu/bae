@@ -347,8 +347,15 @@ async function start() {
 				platform: channel.platform,
 				credentials: creds,
 				channelId: channel.id,
-				onMessage: (thread, userId, text) =>
-					bridge.handleMessage(thread, userId, text, channel.id, config),
+				onMessage: (thread, userId, text, attachments) =>
+					bridge.handleMessage(
+						thread,
+						userId,
+						text,
+						channel.id,
+						config,
+						attachments,
+					),
 			});
 
 			await handle.start();

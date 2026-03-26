@@ -1,3 +1,7 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Attachment } from "../platform/types.ts";
+import { sanitizeFilename } from "../platform/types.ts";
 import { parseJSONLStream } from "../stream/parser.ts";
 import { transformClaudeEvent } from "../stream/transformer.ts";
 import type { AgentEvent } from "../stream/types.ts";
@@ -6,14 +10,116 @@ import type { ExecuteOptions, ExecuteResult, Executor } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const SIGKILL_DELAY_MS = 5_000;
+const ATTACHMENTS_DIR = ".bae-attachments";
+
+/** Generate a short random ID for deduplicating filenames. */
+function shortId(): string {
+	const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+	let id = "";
+	for (let i = 0; i < 6; i++) {
+		id += chars[Math.floor(Math.random() * chars.length)];
+	}
+	return id;
+}
+
+/**
+ * Save attachments to the workspace's `.bae-attachments/` directory.
+ * Returns an array of saved relative paths.
+ */
+export function saveAttachments(
+	attachments: Attachment[],
+	cwd: string,
+): string[] {
+	const dir = join(cwd, ATTACHMENTS_DIR);
+	mkdirSync(dir, { recursive: true });
+	ensureGitignore(cwd);
+
+	const paths: string[] = [];
+	for (const att of attachments) {
+		const safe = sanitizeFilename(att.filename);
+		const name = `${shortId()}-${safe}`;
+		const fullPath = join(dir, name);
+		writeFileSync(fullPath, att.data);
+		paths.push(`${ATTACHMENTS_DIR}/${name}`);
+	}
+	return paths;
+}
+
+/**
+ * Ensure `.bae-attachments/` is in the workspace's `.gitignore`.
+ */
+function ensureGitignore(cwd: string): void {
+	const gitignorePath = join(cwd, ".gitignore");
+	try {
+		if (existsSync(gitignorePath)) {
+			const content = readFileSync(gitignorePath, "utf-8");
+			if (content.includes(ATTACHMENTS_DIR)) return;
+			writeFileSync(
+				gitignorePath,
+				`${content.trimEnd()}\n${ATTACHMENTS_DIR}/\n`,
+			);
+		} else {
+			writeFileSync(gitignorePath, `${ATTACHMENTS_DIR}/\n`);
+		}
+	} catch {
+		// Non-fatal — don't break the message flow over gitignore
+	}
+}
 
 /**
  * Format a user message as NDJSON for `--input-format stream-json`.
+ *
+ * When attachments are present:
+ * - All files saved to `.bae-attachments/` in the workspace
+ * - Images included inline as base64 content blocks
+ * - Non-image files referenced by path in the text block
  */
-export function makeUserMessage(text: string, sessionId?: string): string {
+export function makeUserMessage(
+	text: string,
+	sessionId?: string,
+	attachments?: Attachment[],
+	cwd?: string,
+): string {
+	let content: string | unknown[];
+
+	if (attachments?.length && cwd) {
+		const savedPaths = saveAttachments(attachments, cwd);
+		const contentBlocks: unknown[] = [];
+
+		// Build text block: user text + non-image file path references
+		const textParts: string[] = [];
+		if (text.trim()) textParts.push(text);
+
+		for (let i = 0; i < attachments.length; i++) {
+			const att = attachments[i]!;
+			if (att.mimeType.startsWith("image/")) {
+				// Image: inline as base64 content block
+				contentBlocks.push({
+					type: "image",
+					source: {
+						type: "base64",
+						media_type: att.mimeType,
+						data: att.data.toString("base64"),
+					},
+				});
+			} else {
+				// Non-image: reference the saved path
+				textParts.push(`[Attached file: ${savedPaths[i]}]`);
+			}
+		}
+
+		// Always include a text block (first, per Messages API convention)
+		const finalText = textParts.length > 0 ? textParts.join("\n") : "(see attached)";
+		contentBlocks.unshift({ type: "text", text: finalText });
+
+		content = contentBlocks;
+	} else {
+		content = text || "(empty message)";
+	}
+
 	return JSON.stringify({
 		type: "user",
-		message: { role: "user", content: text },
+		message: { role: "user", content },
 		session_id: sessionId ?? "default",
 		parent_tool_use_id: null,
 	});
@@ -57,7 +163,12 @@ export class ClaudeCodeExecutor implements Executor {
 		});
 
 		// Write the initial prompt to stdin
-		const initialMessage = makeUserMessage(options.prompt);
+		const initialMessage = makeUserMessage(
+			options.prompt,
+			undefined,
+			options.attachments,
+			options.cwd,
+		);
 		proc.stdin?.write(`${initialMessage}\n`);
 
 		// Log stderr in background (bounded to ~4KB)
@@ -165,11 +276,16 @@ export class ClaudeCodeExecutor implements Executor {
 			events: eventStream(),
 			sessionId,
 
-			send(text: string) {
+			send(text: string, attachments?: Attachment[]) {
 				if (!proc.stdin) {
 					throw new Error("Process stdin not available");
 				}
-				const msg = makeUserMessage(text, agentSessionId);
+				const msg = makeUserMessage(
+					text,
+					agentSessionId,
+					attachments,
+					options.cwd,
+				);
 				proc.stdin.write(`${msg}\n`);
 				resetTimeout();
 			},

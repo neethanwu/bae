@@ -8,7 +8,12 @@
 
 import { SocketModeClient } from "@slack/socket-mode";
 import { WebClient } from "@slack/web-api";
-import type { ChannelHandle, PlatformConfig, PlatformThread } from "./types.ts";
+import type {
+	Attachment,
+	ChannelHandle,
+	PlatformConfig,
+	PlatformThread,
+} from "./types.ts";
 
 export const SLACK_CONFIG: PlatformConfig = {
 	splitSoft: 10000,
@@ -88,6 +93,7 @@ export interface CreateSlackChannelOptions {
 		thread: PlatformThread,
 		userId: string,
 		text: string,
+		attachments?: Attachment[],
 	) => Promise<void>;
 }
 

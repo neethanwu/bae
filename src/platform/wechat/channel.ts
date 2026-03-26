@@ -10,6 +10,7 @@
 
 import { nanoid } from "nanoid";
 import type {
+	Attachment,
 	ChannelHandle,
 	PlatformConfig,
 	PlatformThread,
@@ -142,6 +143,7 @@ async function monitor(
 		thread: PlatformThread,
 		userId: string,
 		text: string,
+		attachments?: Attachment[],
 	) => Promise<void>,
 	signal: AbortSignal,
 ): Promise<void> {
@@ -220,6 +222,7 @@ export interface CreateWeChatChannelOptions {
 		thread: PlatformThread,
 		userId: string,
 		text: string,
+		attachments?: Attachment[],
 	) => Promise<void>;
 }
 

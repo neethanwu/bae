@@ -10,6 +10,7 @@
 
 import type { AgentMailClient } from "agentmail";
 import type {
+	Attachment,
 	ChannelHandle,
 	PlatformConfig,
 	PlatformThread,
@@ -96,6 +97,7 @@ export interface CreateEmailChannelOptions {
 		thread: PlatformThread,
 		userId: string,
 		text: string,
+		attachments?: Attachment[],
 	) => Promise<void>;
 }
 

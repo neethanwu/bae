@@ -1,4 +1,5 @@
 import { ClaudeCodeExecutor } from "../executor/claude.ts";
+import type { Attachment } from "../platform/types.ts";
 import type { ExecuteResult, Executor } from "../executor/types.ts";
 import type { AgentEvent } from "../stream/types.ts";
 import type { Store } from "./store.ts";
@@ -65,6 +66,7 @@ export class SessionManager {
 		channelId: string,
 		conversationId: string,
 		text: string,
+		attachments?: Attachment[],
 	): Promise<HandleMessageResult> {
 		const key = this.handleKey(channelId, conversationId);
 		const existing = this.activeHandles.get(key);
@@ -72,7 +74,7 @@ export class SessionManager {
 		// Steering fast path: active process with send() → write to stdin
 		if (existing?.send) {
 			try {
-				existing.send(text);
+				existing.send(text, attachments);
 				this.resetIdleTimer(key);
 				return { steered: true };
 			} catch {
@@ -124,6 +126,7 @@ export class SessionManager {
 
 		const result = executor.execute({
 			prompt: text,
+			attachments,
 			cwd: workspace.path,
 			resumeSessionId: session.agentSessionId ?? undefined,
 		});

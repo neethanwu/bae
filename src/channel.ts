@@ -4,7 +4,11 @@ import { markdownToTelegramHtml } from "./formatter/html.ts";
 import { createEmailChannel } from "./platform/email/channel.ts";
 import { createSlackChannel } from "./platform/slack.ts";
 import { telegramThread } from "./platform/telegram.ts";
-import type { ChannelHandle, PlatformThread } from "./platform/types.ts";
+import type {
+	Attachment,
+	ChannelHandle,
+	PlatformThread,
+} from "./platform/types.ts";
 import { createWeChatChannel } from "./platform/wechat/channel.ts";
 import type { Platform } from "./session/types.ts";
 import { createRetryState } from "./state.ts";
@@ -19,6 +23,7 @@ export interface CreateChannelOptions {
 		thread: PlatformThread,
 		userId: string,
 		text: string,
+		attachments?: Attachment[],
 	) => Promise<void>;
 }
 
@@ -65,6 +70,7 @@ function createTelegramChannel(
 		thread: PlatformThread,
 		userId: string,
 		text: string,
+		attachments?: Attachment[],
 	) => Promise<void>,
 ): ChannelHandle {
 	// Pass token DIRECTLY — no process.env mutation
