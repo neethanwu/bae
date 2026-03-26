@@ -57,38 +57,56 @@ function emailThread(
 	inboxId: string,
 	threadId: string,
 ): PlatformThread {
+	// Buffer all text within a turn, send as one reply on flush()
+	let turnBuffer: string[] = [];
+
+	async function sendReply(text: string): Promise<void> {
+		const messageId = lastMessageIds.get(threadId);
+		if (!messageId) {
+			throw new Error(
+				`[bae:email] No message ID tracked for thread ${threadId}`,
+			);
+		}
+		await client.inboxes.messages.reply(inboxId, messageId, {
+			text: stripMarkdown(text),
+		});
+		// Mark as replied for dedup on reconnection
+		try {
+			await client.inboxes.messages.update(inboxId, messageId, {
+				addLabels: ["replied"],
+				removeLabels: ["unreplied"],
+			});
+		} catch {
+			// Best effort — label update failure should not break the reply
+		}
+	}
+
 	return {
 		id: threadId,
 
 		async post(text: string) {
-			const messageId = lastMessageIds.get(threadId);
-			if (!messageId) {
-				throw new Error(
-					`[bae:email] No message ID tracked for thread ${threadId}`,
-				);
-			}
-			await client.inboxes.messages.reply(inboxId, messageId, {
-				text: stripMarkdown(text),
-			});
-			// Mark as replied for dedup on reconnection
-			try {
-				await client.inboxes.messages.update(inboxId, messageId, {
-					addLabels: ["replied"],
-					removeLabels: ["unreplied"],
-				});
-			} catch {
-				// Best effort — label update failure should not break the reply
-			}
+			turnBuffer.push(text);
 		},
 
 		async postStream(chunks: AsyncIterable<string>) {
 			let full = "";
 			for await (const chunk of chunks) full += chunk;
-			if (full) await this.post(full);
+			if (full) turnBuffer.push(full);
 		},
 
 		async startTyping() {
 			// Email has no typing indicator — no-op
+		},
+
+		async flush() {
+			if (turnBuffer.length === 0) return;
+			const combined = turnBuffer.join("\n\n");
+			turnBuffer = [];
+			await sendReply(combined);
+		},
+
+		discard() {
+			turnBuffer = [];
 		},
 	};
 }

@@ -266,6 +266,9 @@ async function consumeAllTurns(
 			await postPromise;
 		}
 
+		// Flush buffered content (email batches all posts into one reply)
+		await thread.flush?.();
+
 		const costStr = resultEvent?.costUsd
 			? `, $${resultEvent.costUsd.toFixed(4)}`
 			: "";
@@ -371,6 +374,8 @@ async function consumeAllTurns(
 					await postPromise;
 					isStreaming = false;
 				}
+				// Discard intermediate text before tool use (email only sends final response)
+				thread.discard?.();
 				startTyping();
 			}
 

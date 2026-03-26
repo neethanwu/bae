@@ -16,6 +16,18 @@ export interface PlatformThread {
 	postStream(chunks: AsyncIterable<string>): Promise<void>;
 	/** Show a typing/working indicator (no-op if platform doesn't support it). */
 	startTyping(): Promise<void>;
+	/**
+	 * Flush any buffered content as a single message.
+	 * Called at the end of each turn. Platforms that buffer (email) send here.
+	 * Platforms that stream in real-time (Telegram, Slack) can no-op.
+	 */
+	flush?(): Promise<void>;
+	/**
+	 * Discard buffered content (called before tool execution).
+	 * Email uses this to drop intermediate "thinking" text so only the
+	 * final response after tool use is sent.
+	 */
+	discard?(): void;
 }
 
 /** Per-platform configuration for the bridge's message handling. */
